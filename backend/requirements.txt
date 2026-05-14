@@ -1,0 +1,6 @@
+
+Flask==2.3.3
+Flask-Cors==3.0.10
+requests==2.31.0
+SQLAlchemy==2.0.19
+# psycopg2-binary removed for local dev (use SQLite). Add if deploying with Postgres.
