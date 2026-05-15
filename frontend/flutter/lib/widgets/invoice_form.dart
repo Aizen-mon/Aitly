@@ -118,26 +118,56 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
     setState(() => _isLoading = true);
 
     try {
+      // Generate invoice number (format: INV-YYYYMMDD-HHMMSS)
+      final now = DateTime.now();
+      final invoiceNo = 'INV-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+      
+      // Format date as YYYYMMDD for Tally
+      final dateStr = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
+      
+      // Transform items: rename quantity→qty, price→rate
+      final transformedItems = _items.map((item) {
+        final discountAmount = (item['price'] as double) * (item['discount'] as double) / 100;
+        final finalRate = (item['price'] as double) - discountAmount;
+        return {
+          'name': item['name'],
+          'qty': item['quantity'],
+          'rate': finalRate,
+          'original_price': item['price'],
+          'discount_percent': item['discount'],
+        };
+      }).toList();
+
+      // Build invoice data matching Tally backend format
       final invoiceData = {
-        'customer': _customerController.text,
-        'items': _items,
+        'invoice_no': invoiceNo,
+        'date': dateStr,
+        'party_name': _customerController.text,
+        'items': transformedItems,
         'total': _calculateTotal(),
-        'date': DateTime.now().toIso8601String(),
       };
 
-      final response = await Api.post('/create_invoice', invoiceData);
+      // Send to Tally backend (will attempt Tally push, fallback to pending queue)
+      final response = await Api.post('/send_invoice', invoiceData);
 
-      if (response['status'] == 'success' || response['status'] == 'saved') {
-        _showSnackbar('Invoice created successfully!', isSuccess: true);
-        widget.onSuccess?.call();
+      if (response != null) {
+        final status = response['status'];
+        if (status == 'sent') {
+          _showSnackbar('✓ Invoice sent to Tally successfully!', isSuccess: true);
+        } else if (status == 'pending') {
+          _showSnackbar('⏳ Tally offline. Invoice saved as pending.', isSuccess: true);
+        } else {
+          _showSnackbar('Invoice saved. Status: ${response['status'] ?? 'unknown'}', isSuccess: true);
+        }
         
-        Future.delayed(Duration(seconds: 1), () {
+        widget.onSuccess?.call();
+        Future.delayed(Duration(seconds: 2), () {
           if (mounted) {
             Navigator.pop(context);
           }
         });
       } else {
-        _showSnackbar('Failed to create invoice: ${response['message'] ?? 'Unknown error'}');
+        _showSnackbar('Failed to process invoice');
       }
     } catch (e) {
       _showSnackbar('Error: ${e.toString()}');
@@ -169,12 +199,12 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
+              // ==================== HEADER ====================
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Create New Invoice',
+                    'Create Invoice & Bill',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -185,174 +215,295 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-
-              _buildSnapshotSection(),
-              const SizedBox(height: 20),
-
-              // Customer Name Field
-              TextField(
-                controller: _customerController,
-                decoration: InputDecoration(
-                  labelText: 'Customer Name',
-                  hintText: 'Enter customer name',
-                  prefixIcon: const Icon(Icons.person),
-                ),
-                enabled: !_isLoading,
-              ),
-              const SizedBox(height: 20),
-
-              // Items Section
+              const SizedBox(height: 4),
               Text(
-                'Invoice Items',
+                'Build quotations with Tally data and send to Tally',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey[600],
+                ),
+              ),
+              const Divider(height: 24),
+
+              // ==================== QUOTATION REFERENCE SECTION ====================
+              _buildSnapshotSection(),
+              const Divider(height: 24),
+
+              // ==================== CUSTOMER DETAILS ====================
+              Text(
+                'Customer Details',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 12),
-
-              // Item Input Row
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[300]!),
-                  borderRadius: BorderRadius.circular(8),
+              TextField(
+                controller: _customerController,
+                decoration: InputDecoration(
+                  labelText: 'Customer Name *',
+                  hintText: 'Enter customer name or select from history',
+                  prefixIcon: const Icon(Icons.person_outline),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
+                enabled: !_isLoading,
+              ),
+              const SizedBox(height: 20),
+
+              // ==================== BILLING SECTION ====================
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.blue[200]!),
+                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.blue[50],
+                ),
+                padding: const EdgeInsets.all(16),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TextField(
-                      controller: _itemNameController,
-                      decoration: InputDecoration(
-                        labelText: 'Item Name',
-                        hintText: 'e.g., Product X',
-                        prefixIcon: const Icon(Icons.shopping_bag),
-                        enabled: !_isLoading,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                     Row(
                       children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _quantityController,
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              labelText: 'Qty',
-                              prefixIcon: const Icon(Icons.numbers),
-                              enabled: !_isLoading,
-                            ),
-                          ),
-                        ),
+                        Icon(Icons.receipt_long, color: Colors.blue[700]),
                         const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: _priceController,
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              labelText: 'Price',
-                              prefixIcon: const Icon(Icons.currency_rupee),
-                              enabled: !_isLoading,
-                            ),
+                        Text(
+                          'Billing Items',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[900],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _discountController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: 'Discount % (optional)',
-                        prefixIcon: const Icon(Icons.percent),
-                        enabled: !_isLoading,
+                    const SizedBox(height: 16),
+
+                    // Item Input Form
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.white,
+                      ),
+                      child: Column(
+                        children: [
+                          TextField(
+                            controller: _itemNameController,
+                            decoration: InputDecoration(
+                              labelText: 'Item Name *',
+                              hintText: 'Enter product name (or tap catalog below)',
+                              prefixIcon: const Icon(Icons.shopping_bag_outlined),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                            enabled: !_isLoading,
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _quantityController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: 'Qty *',
+                                    prefixIcon: const Icon(Icons.numbers),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                  ),
+                                  enabled: !_isLoading,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _priceController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: 'Rate (₹) *',
+                                    prefixIcon: const Icon(Icons.currency_rupee),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                  ),
+                                  enabled: !_isLoading,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _discountController,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              labelText: 'Discount % (optional)',
+                              prefixIcon: const Icon(Icons.percent),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                            enabled: !_isLoading,
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: _isLoading ? null : _addItem,
+                              icon: const Icon(Icons.add_circle_outline),
+                              label: const Text('Add Item to Bill'),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _isLoading ? null : _addItem,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add Item'),
+                    const SizedBox(height: 16),
+
+                    // Items List / Bill Table
+                    if (_items.isNotEmpty) ...[
+                      Text(
+                        'Bill Summary',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 250),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _items.length,
+                          itemBuilder: (context, index) {
+                            final item = _items[index];
+                            final quantity = item['quantity'] as int;
+                            final price = item['price'] as double;
+                            final discount = (item['discount'] as num?)?.toDouble() ?? 0;
+                            final subtotal = quantity * price * (1 - (discount / 100));
+                            
+                            return Column(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              item['name'],
+                                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                            onPressed: () => _removeItem(index),
+                                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                                            padding: EdgeInsets.zero,
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            '$quantity × ₹${price.toStringAsFixed(2)}',
+                                            style: Theme.of(context).textTheme.bodyMedium,
+                                          ),
+                                          if (discount > 0)
+                                            Text(
+                                              '- ${discount.toStringAsFixed(0)}%',
+                                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                                color: Colors.orange[700],
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const Text('Subtotal:'),
+                                          Text(
+                                            '₹${subtotal.toStringAsFixed(2)}',
+                                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.green[700],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Divider(height: 1, color: Colors.grey[300]),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Total Amount Box
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.green[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.green[300]!),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Total Bill Amount:',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              '₹${_calculateTotal().toStringAsFixed(2)}',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green[700],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Center(
+                          child: Text(
+                            'No items added yet. Fill details and click "Add Item to Bill"',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.grey[600],
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
 
-              // Items List
-              if (_items.isNotEmpty) ...[
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 200),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: _items.length,
-                    itemBuilder: (context, index) {
-                      final item = _items[index];
-                      final quantity = item['quantity'] as int;
-                      final price = item['price'] as double;
-                      final discount = (item['discount'] as num?)?.toDouble() ?? 0;
-                      final subtotal = quantity * price * (1 - (discount / 100));
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          title: Text(item['name']),
-                          subtitle: Text(
-                            'Qty: $quantity × ₹${price.toStringAsFixed(2)}${discount > 0 ? ' - ${discount.toStringAsFixed(0)}%' : ''} = ₹${subtotal.toStringAsFixed(2)}',
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: () => _removeItem(index),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Total
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Total Amount:',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        '₹${_calculateTotal().toStringAsFixed(2)}',
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green[700],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ] else
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Text(
-                    'No items added yet',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ),
-
-              const SizedBox(height: 24),
-
-              // Action Buttons
+              // ==================== ACTION BUTTONS ====================
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -360,20 +511,23 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
                     onPressed: _isLoading ? null : () => Navigator.pop(context),
                     child: const Text('Cancel'),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 12),
                   ElevatedButton.icon(
-                    onPressed:
-                        (_isLoading || _items.isEmpty) ? null : _submitInvoice,
+                    onPressed: (_isLoading || _items.isEmpty) ? null : _submitInvoice,
                     icon: _isLoading
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.check),
-                    label: Text(_isLoading ? 'Creating...' : 'Create Invoice'),
+                        : const Icon(Icons.cloud_upload_outlined),
+                    label: Text(_isLoading ? 'Sending to Tally...' : 'Send to Tally'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -490,7 +644,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
           ],
         ),
         const SizedBox(height: 12),
-        if (inventory?['items'] is List && (inventory['items'] as List).isNotEmpty) ...[
+        if (inventory != null && inventory['items'] is List && (inventory['items'] as List).isNotEmpty) ...[
           Text(
             'Available Quantity',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -498,7 +652,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
             ),
           ),
           const SizedBox(height: 8),
-          ...((inventory['items'] as List).take(4).map((item) {
+          ...((inventory!['items'] as List).take(4).map((item) {
             final map = item is Map ? Map<String, dynamic>.from(item) : <String, dynamic>{};
             return Padding(
               padding: const EdgeInsets.only(bottom: 6),
