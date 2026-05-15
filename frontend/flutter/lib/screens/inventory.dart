@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
 import '../services/api.dart';
 
@@ -11,9 +11,10 @@ class InventoryScreen extends StatefulWidget {
   _InventoryScreenState createState() => _InventoryScreenState();
 }
 
-class _InventoryScreenState extends State<InventoryScreen>
-    with SingleTickerProviderStateMixin {
+class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  
+  // Form controllers
   final _itemNameController = TextEditingController();
   final _quantityController = TextEditingController();
   final _priceController = TextEditingController();
@@ -21,6 +22,7 @@ class _InventoryScreenState extends State<InventoryScreen>
   final _discountController = TextEditingController();
   final _taxController = TextEditingController();
 
+  // State
   List<Map<String, dynamic>> _inventoryItems = [];
   List<Map<String, dynamic>> _previousBills = [];
   bool _isScanning = false;
@@ -61,37 +63,46 @@ class _InventoryScreenState extends State<InventoryScreen>
     }
   }
 
-  Future<void> _pickImageFromGallery() async {
+  // FILE PICKER - Web compatible file upload
+  Future<void> _pickFileFromDevice() async {
     try {
       setState(() => _isScanning = true);
+      
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: false,
       );
-      
-      if (result != null && result.files.single.bytes != null) {
-        final bytes = result.files.single.bytes!;
-        final base64String = base64Encode(bytes);
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
         
-        setState(() {
-          _selectedImageBase64 = base64String;
-          _selectedImageName = result.files.single.name;
-          _scannedText = null;
-        });
-        
-        _extractTextFromImage(base64String);
+        if (file.bytes != null) {
+          final base64String = base64Encode(file.bytes!);
+          setState(() {
+            _selectedImageBase64 = base64String;
+            _selectedImageName = file.name;
+            _scannedText = null;
+          });
+          
+          _extractTextFromImage(base64String);
+        } else {
+          _showSnackbar('Could not read file bytes');
+        }
       }
     } catch (e) {
-      _showSnackbar('Error picking image: $e');
+      _showSnackbar('Error picking file: $e');
+      print('File picker error: $e');
     } finally {
       setState(() => _isScanning = false);
     }
   }
 
-  Future<void> _captureImageFromCamera() async {
+  // CAMERA - Direct camera capture
+  Future<void> _captureFromCamera() async {
     try {
       setState(() => _isScanning = true);
-      final XFile? image = await _imagePicker.pickImage(source: ImageSource.camera);
+      
+      final image = await _imagePicker.pickImage(source: ImageSource.camera);
       if (image != null) {
         final bytes = await image.readAsBytes();
         final base64String = base64Encode(bytes);
@@ -106,6 +117,7 @@ class _InventoryScreenState extends State<InventoryScreen>
       }
     } catch (e) {
       _showSnackbar('Error capturing image: $e');
+      print('Camera error: $e');
     } finally {
       setState(() => _isScanning = false);
     }
@@ -152,6 +164,7 @@ class _InventoryScreenState extends State<InventoryScreen>
       
     } catch (e) {
       _showSnackbar('Error extracting text: $e');
+      print('Extraction error: $e');
     } finally {
       setState(() => _isScanning = false);
     }
@@ -198,7 +211,7 @@ class _InventoryScreenState extends State<InventoryScreen>
   void _showExtractedItemsDialog(List<Map<String, dynamic>> items) {
     showDialog(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
+      builder: (context) => AlertDialog(
         title: const Text('Extracted Bill Items'),
         content: SizedBox(
           width: double.maxFinite,
@@ -208,17 +221,17 @@ class _InventoryScreenState extends State<InventoryScreen>
             itemBuilder: (context, index) {
               final item = items[index];
               return Card(
-                margin: const EdgeInsets.only(bottom: 8),
                 child: Padding(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(item['name'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text('Qty: ${item['quantity'] ?? 0}'),
-                      Text('Rate: ₹${item['price'] ?? 0}'),
-                      if (item['discount'] != null && item['discount'] > 0) Text('Discount: ${item['discount']}%'),
-                      if (item['tax'] != null && item['tax'] > 0) Text('Tax: ${item['tax']}%'),
+                      Text(item['name'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      const SizedBox(height: 4),
+                      Text('Qty: ${item['quantity'] ?? 0}', style: const TextStyle(fontSize: 12)),
+                      Text('Rate: ₹${item['price'] ?? 0}', style: const TextStyle(fontSize: 12)),
+                      if ((item['discount'] ?? 0) > 0) Text('Discount: ${item['discount']}%', style: const TextStyle(fontSize: 12, color: Colors.orange)),
+                      if ((item['tax'] ?? 0) > 0) Text('Tax: ${item['tax']}%', style: const TextStyle(fontSize: 12, color: Colors.blue)),
                     ],
                   ),
                 ),
@@ -233,7 +246,7 @@ class _InventoryScreenState extends State<InventoryScreen>
               _addExtractedItemsToInventory(items);
               Navigator.pop(context);
             },
-            child: const Text('Add All Items'),
+            child: const Text('Add All'),
           ),
         ],
       ),
@@ -259,9 +272,7 @@ class _InventoryScreenState extends State<InventoryScreen>
   }
 
   void _addInventoryItem() {
-    if (_itemNameController.text.isEmpty ||
-        _quantityController.text.isEmpty ||
-        _priceController.text.isEmpty) {
+    if (_itemNameController.text.isEmpty || _quantityController.text.isEmpty || _priceController.text.isEmpty) {
       _showSnackbar('Please fill all required fields');
       return;
     }
@@ -294,7 +305,7 @@ class _InventoryScreenState extends State<InventoryScreen>
       _priceController.text = (bill['amount'] ?? 0).toString();
       _supplierController.text = bill['party'] ?? '';
     });
-    _showSnackbar('✓ Bill details loaded! Review and add to inventory.', isSuccess: true);
+    _showSnackbar('✓ Bill details loaded!', isSuccess: true);
   }
 
   void _removeInventoryItem(int index) {
@@ -318,14 +329,11 @@ class _InventoryScreenState extends State<InventoryScreen>
       appBar: AppBar(
         title: const Text('Inventory & Bill Scanning'),
         elevation: 0,
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.add_box), text: 'Add Item'),
-            Tab(icon: Icon(Icons.receipt), text: 'Scan Bill'),
-            Tab(icon: Icon(Icons.inventory_2), text: 'Inventory'),
-          ],
-        ),
+        bottom: TabBar(controller: _tabController, tabs: const [
+          Tab(icon: Icon(Icons.add_box), text: 'Add Item'),
+          Tab(icon: Icon(Icons.receipt), text: 'Scan Bill'),
+          Tab(icon: Icon(Icons.inventory_2), text: 'Inventory'),
+        ]),
       ),
       body: TabBarView(
         controller: _tabController,
@@ -340,41 +348,84 @@ class _InventoryScreenState extends State<InventoryScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Add New Inventory Item', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+          Text('Add New Item', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 16),
-          TextField(controller: _itemNameController, decoration: InputDecoration(labelText: 'Item Name *', hintText: 'e.g., Product X', prefixIcon: const Icon(Icons.shopping_bag_outlined), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))),
+          TextField(
+            controller: _itemNameController,
+            decoration: InputDecoration(labelText: 'Item Name *', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+          ),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: TextField(controller: _quantityController, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Quantity *', prefixIcon: const Icon(Icons.numbers), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))))),
+              Expanded(
+                child: TextField(
+                  controller: _quantityController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: 'Quantity *', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                ),
+              ),
               const SizedBox(width: 12),
-              Expanded(child: TextField(controller: _priceController, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Price (₹) *', prefixIcon: const Icon(Icons.currency_rupee), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))))),
+              Expanded(
+                child: TextField(
+                  controller: _priceController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: 'Price (₹) *', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: TextField(controller: _discountController, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Discount %', prefixIcon: const Icon(Icons.percent), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))))),
+              Expanded(
+                child: TextField(
+                  controller: _discountController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: 'Discount %', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                ),
+              ),
               const SizedBox(width: 12),
-              Expanded(child: TextField(controller: _taxController, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Tax %', prefixIcon: const Icon(Icons.calculate), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))))),
+              Expanded(
+                child: TextField(
+                  controller: _taxController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: 'Tax %', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
-          TextField(controller: _supplierController, decoration: InputDecoration(labelText: 'Supplier (optional)', hintText: 'Supplier name', prefixIcon: const Icon(Icons.store_outlined), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))),
+          TextField(
+            controller: _supplierController,
+            decoration: InputDecoration(labelText: 'Supplier (optional)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+          ),
           const SizedBox(height: 24),
-          SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _addInventoryItem, icon: const Icon(Icons.add_circle_outline), label: const Text('Add to Inventory'), style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)))),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _addInventoryItem,
+              icon: const Icon(Icons.add_circle_outline),
+              label: const Text('Add to Inventory'),
+              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+            ),
+          ),
           const SizedBox(height: 32),
           if (_previousBills.isNotEmpty) ...[
-            Text('Quick Add from Recent Bills', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            Text('Recent Bills', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            ..._previousBills.take(5).map((bill) => Card(
-              child: ListTile(
-                leading: const Icon(Icons.receipt_long, color: Colors.blue),
-                title: Text(bill['invoice'] ?? bill['party'] ?? 'Bill'),
-                subtitle: Text('₹${bill['amount'] ?? 0}'),
-                trailing: IconButton(icon: const Icon(Icons.add, color: Colors.green), onPressed: () => _addFromPreviousBill(bill)),
+            ..._previousBills.take(5).map(
+              (bill) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.receipt_long, color: Colors.blue),
+                  title: Text(bill['invoice'] ?? bill['party'] ?? 'Bill'),
+                  subtitle: Text('₹${bill['amount'] ?? 0}'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.add, color: Colors.green),
+                    onPressed: () => _addFromPreviousBill(bill),
+                  ),
+                ),
               ),
-            )),
+            ),
           ],
         ],
       ),
@@ -387,72 +438,83 @@ class _InventoryScreenState extends State<InventoryScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Scan or Upload Bill', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+          Text('Scan or Upload Bill', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 24),
           
+          // CAMERA BUTTON - Works on mobile
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(12), color: Colors.blue[50]),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!),
+              borderRadius: BorderRadius.circular(12),
+              color: Colors.blue[50],
+            ),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.camera_alt, size: 56, color: Colors.blue[400]),
+                Icon(Icons.camera_alt, size: 48, color: Colors.blue[600]),
                 const SizedBox(height: 12),
-                Text('Capture Bill with Camera', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                Text('Take Photo with Camera', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                Text('Take a photo of your bill for AI extraction', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]), textAlign: TextAlign.center),
+                Text('Capture your bill with device camera', style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: _isScanning ? null : _captureImageFromCamera,
+                    onPressed: _isScanning ? null : _captureFromCamera,
                     icon: _isScanning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.camera),
                     label: Text(_isScanning ? 'Processing...' : 'Open Camera'),
-                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
                   ),
                 ),
               ],
             ),
           ),
+          
           const SizedBox(height: 20),
-          Divider(color: Colors.grey[400]),
+          Divider(height: 1, color: Colors.grey[300]),
           const SizedBox(height: 20),
-
+          
+          // FILE UPLOAD BUTTON - Works on web and mobile
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(12), color: Colors.green[50]),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!),
+              borderRadius: BorderRadius.circular(12),
+              color: Colors.green[50],
+            ),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.upload_file, size: 56, color: Colors.green[400]),
+                Icon(Icons.upload_file, size: 48, color: Colors.green[600]),
                 const SizedBox(height: 12),
-                Text('Upload Bill Image', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                Text('Upload Bill Image', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                Text('Upload a photo from your device gallery', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]), textAlign: TextAlign.center),
+                Text('Select an image from your device', style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: _isScanning ? null : _pickImageFromGallery,
-                    icon: _isScanning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.image),
-                    label: Text(_isScanning ? 'Processing...' : 'Pick from Gallery'),
-                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
+                    onPressed: _isScanning ? null : _pickFileFromDevice,
+                    icon: _isScanning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.folder_open),
+                    label: Text(_isScanning ? 'Processing...' : 'Pick File'),
                   ),
                 ),
               ],
             ),
           ),
 
+          // IMAGE PREVIEW
           if (_selectedImageBase64 != null && _selectedImageBase64!.isNotEmpty) ...[
             const SizedBox(height: 20),
-            Text('Selected Bill Image', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            Text('Selected Image', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
-              height: 200,
-              decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[300]!), color: Colors.grey[100]),
+              height: 240,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: Image.memory(
@@ -462,19 +524,28 @@ class _InventoryScreenState extends State<InventoryScreen>
               ),
             ),
             const SizedBox(height: 8),
-            Text('File: $_selectedImageName', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey[600])),
+            if (_selectedImageName != null) Text('File: $_selectedImageName', style: Theme.of(context).textTheme.labelSmall),
           ],
 
+          // SCANNED TEXT
           if (_scannedText != null && _scannedText!.isNotEmpty) ...[
             const SizedBox(height: 20),
-            Text('Extracted Bill Text', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            Text('Extracted Text', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey[300]!)),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
               child: SingleChildScrollView(
-                child: Text(_scannedText!, style: Theme.of(context).textTheme.bodySmall, maxLines: 15, overflow: TextOverflow.ellipsis),
+                child: Text(
+                  _scannedText!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                  maxLines: 20,
+                ),
               ),
             ),
           ],
@@ -488,7 +559,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                 children: [
                   Icon(Icons.info_outline, color: Colors.amber[700]),
                   const SizedBox(width: 12),
-                  Expanded(child: Text('AI will extract items and auto-fill your inventory', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.amber[900]))),
+                  Expanded(child: Text('AI extracts items automatically for your inventory', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.amber[900]))),
                 ],
               ),
             ),
@@ -506,9 +577,9 @@ class _InventoryScreenState extends State<InventoryScreen>
           children: [
             Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
-            Text('No inventory items yet', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey[600])),
+            Text('No items in inventory', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey[600])),
             const SizedBox(height: 8),
-            Text('Add items from "Add Item" or "Scan Bill" tabs', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[500]), textAlign: TextAlign.center),
+            Text('Add items from other tabs', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[500])),
           ],
         ),
       );
@@ -535,13 +606,16 @@ class _InventoryScreenState extends State<InventoryScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(item['name'], style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                          Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                           const SizedBox(height: 4),
-                          Text('Supplier: ${item['supplier']}', style: Theme.of(context).textTheme.bodySmall, overflow: TextOverflow.ellipsis),
+                          Text('${item['supplier']}', style: Theme.of(context).textTheme.bodySmall),
                         ],
                       ),
                     ),
-                    IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _removeInventoryItem(index)),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _removeInventoryItem(index),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -551,33 +625,33 @@ class _InventoryScreenState extends State<InventoryScreen>
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Quantity', style: Theme.of(context).textTheme.labelSmall),
-                        Text('${item['quantity']} units', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                        Text('Qty', style: Theme.of(context).textTheme.labelSmall),
+                        Text('${item['quantity']} units', style: const TextStyle(fontWeight: FontWeight.bold)),
                       ],
                     ),
                     Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Text('Unit Price', style: Theme.of(context).textTheme.labelSmall),
-                        Text('₹${(item['price'] as double).toStringAsFixed(2)}', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                        Text('Rate', style: Theme.of(context).textTheme.labelSmall),
+                        Text('₹${(item['price'] as double).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
                       ],
                     ),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text('Total', style: Theme.of(context).textTheme.labelSmall),
-                        Text('₹${total.toStringAsFixed(2)}', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: Colors.green[700])),
+                        Text('₹${total.toStringAsFixed(2)}', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[700])),
                       ],
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                if (item['discount'] != null && item['discount'] > 0)
-                  Text('Discount: ${item['discount']}%', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.orange[700])),
-                if (item['tax'] != null && item['tax'] > 0)
-                  Text('Tax: ${item['tax']}%', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.blue[700])),
+                if ((item['discount'] ?? 0) > 0)
+                  Text('Discount: ${item['discount']}%', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.orange)),
+                if ((item['tax'] ?? 0) > 0)
+                  Text('Tax: ${item['tax']}%', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.blue)),
                 const SizedBox(height: 4),
-                Text('Added: ${item['date']}', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey[600])),
+                Text('Added: ${item['date']}', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey)),
               ],
             ),
           ),
