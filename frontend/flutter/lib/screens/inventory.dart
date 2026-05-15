@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+import 'dart:convert';
 import '../services/api.dart';
 
 class InventoryScreen extends StatefulWidget {
@@ -23,7 +23,8 @@ class _InventoryScreenState extends State<InventoryScreen>
   List<Map<String, dynamic>> _inventoryItems = [];
   List<Map<String, dynamic>> _previousBills = [];
   bool _isScanning = false;
-  File? _selectedImage;
+  String? _selectedImageBase64;
+  String? _selectedImageName;
   String? _scannedText;
 
   final ImagePicker _imagePicker = ImagePicker();
@@ -61,35 +62,50 @@ class _InventoryScreenState extends State<InventoryScreen>
 
   Future<void> _pickImageFromGallery() async {
     try {
+      setState(() => _isScanning = true);
       final XFile? image = await _imagePicker.pickImage(source: ImageSource.gallery);
       if (image != null) {
-        setState(() {
-          _selectedImage = File(image.path);
-          _scannedText = null;
-        });
-        _extractTextFromImage(_selectedImage!);
+        await _processImageFile(image);
       }
     } catch (e) {
       _showSnackbar('Error picking image: $e');
+    } finally {
+      setState(() => _isScanning = false);
     }
   }
 
   Future<void> _captureImageFromCamera() async {
     try {
+      setState(() => _isScanning = true);
       final XFile? image = await _imagePicker.pickImage(source: ImageSource.camera);
       if (image != null) {
-        setState(() {
-          _selectedImage = File(image.path);
-          _scannedText = null;
-        });
-        _extractTextFromImage(_selectedImage!);
+        await _processImageFile(image);
       }
     } catch (e) {
       _showSnackbar('Error capturing image: $e');
+    } finally {
+      setState(() => _isScanning = false);
     }
   }
 
-  Future<void> _extractTextFromImage(File imageFile) async {
+  Future<void> _processImageFile(XFile imageFile) async {
+    try {
+      final bytes = await imageFile.readAsBytes();
+      final base64String = base64Encode(bytes);
+      
+      setState(() {
+        _selectedImageBase64 = base64String;
+        _selectedImageName = imageFile.name;
+        _scannedText = null;
+      });
+
+      _extractTextFromImage(base64String);
+    } catch (e) {
+      _showSnackbar('Error processing image: $e');
+    }
+  }
+
+  Future<void> _extractTextFromImage(String base64Image) async {
     setState(() => _isScanning = true);
 
     try {
@@ -97,22 +113,31 @@ class _InventoryScreenState extends State<InventoryScreen>
         INVOICE #INV-2026051501
         Date: 15-05-2026
         Vendor: XYZ Suppliers
+        Customer: ABC Trading
         
-        Item: Product A
+        Item: Premium Widget
         Quantity: 5
         Rate: ₹250.00
         Discount: 10%
         Tax: 18%
         Amount: 1125.00
         
-        Item: Product B
+        Item: Standard Component
         Quantity: 3
         Rate: ₹500.00
         Discount: 5%
         Tax: 18%
         Amount: 1503.00
         
-        Total: 2628.00
+        Item: Deluxe Package
+        Quantity: 2
+        Rate: ₹800.00
+        Discount: 0%
+        Tax: 18%
+        Amount: 1888.00
+        
+        Total Amount: 4516.00
+        Tax Amount: 654.60
       ''';
 
       setState(() => _scannedText = mockText);
@@ -136,7 +161,7 @@ class _InventoryScreenState extends State<InventoryScreen>
       line = line.trim();
       
       if (line.toLowerCase().startsWith('item:')) {
-        if (currentItem.isNotEmpty) {
+        if (currentItem.isNotEmpty && currentItem.containsKey('name')) {
           extractedItems.add(currentItem);
         }
         currentItem = {'name': line.replaceFirst(RegExp(r'item:\s*', caseSensitive: false), '').trim()};
@@ -155,11 +180,13 @@ class _InventoryScreenState extends State<InventoryScreen>
       }
     }
     
-    if (currentItem.isNotEmpty) {
+    if (currentItem.isNotEmpty && currentItem.containsKey('name')) {
       extractedItems.add(currentItem);
     }
 
-    _showExtractedItemsDialog(extractedItems);
+    if (extractedItems.isNotEmpty) {
+      _showExtractedItemsDialog(extractedItems);
+    }
   }
 
   void _showExtractedItemsDialog(List<Map<String, dynamic>> items) {
@@ -184,8 +211,8 @@ class _InventoryScreenState extends State<InventoryScreen>
                       Text(item['name'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
                       Text('Qty: ${item['quantity'] ?? 0}'),
                       Text('Rate: ₹${item['price'] ?? 0}'),
-                      if (item['discount'] != null) Text('Discount: ${item['discount']}%'),
-                      if (item['tax'] != null) Text('Tax: ${item['tax']}%'),
+                      if (item['discount'] != null && item['discount'] > 0) Text('Discount: ${item['discount']}%'),
+                      if (item['tax'] != null && item['tax'] > 0) Text('Tax: ${item['tax']}%'),
                     ],
                   ),
                 ),
@@ -252,7 +279,7 @@ class _InventoryScreenState extends State<InventoryScreen>
       _taxController.clear();
     });
 
-    _showSnackbar('Item added to inventory!', isSuccess: true);
+    _showSnackbar('✓ Item added to inventory!', isSuccess: true);
   }
 
   void _addFromPreviousBill(Map<String, dynamic> bill) {
@@ -261,7 +288,7 @@ class _InventoryScreenState extends State<InventoryScreen>
       _priceController.text = (bill['amount'] ?? 0).toString();
       _supplierController.text = bill['party'] ?? '';
     });
-    _showSnackbar('Bill details loaded! Review and add to inventory.', isSuccess: true);
+    _showSnackbar('✓ Bill details loaded! Review and add to inventory.', isSuccess: true);
   }
 
   void _removeInventoryItem(int index) {
@@ -412,19 +439,27 @@ class _InventoryScreenState extends State<InventoryScreen>
             ),
           ),
 
-          if (_selectedImage != null) ...[
+          if (_selectedImageBase64 != null && _selectedImageBase64!.isNotEmpty) ...[
             const SizedBox(height: 20),
             Text('Selected Bill Image', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
               height: 200,
-              decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[300]!)),
-              child: ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.file(_selectedImage!, fit: BoxFit.cover)),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[300]!), color: Colors.grey[100]),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.memory(
+                  base64Decode(_selectedImageBase64!),
+                  fit: BoxFit.cover,
+                ),
+              ),
             ),
+            const SizedBox(height: 8),
+            Text('File: $_selectedImageName', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey[600])),
           ],
 
-          if (_scannedText != null) ...[
+          if (_scannedText != null && _scannedText!.isNotEmpty) ...[
             const SizedBox(height: 20),
             Text('Extracted Bill Text', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
@@ -433,7 +468,7 @@ class _InventoryScreenState extends State<InventoryScreen>
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey[300]!)),
               child: SingleChildScrollView(
-                child: Text(_scannedText!, style: Theme.of(context).textTheme.bodySmall, maxLines: 10, overflow: TextOverflow.ellipsis),
+                child: Text(_scannedText!, style: Theme.of(context).textTheme.bodySmall, maxLines: 15, overflow: TextOverflow.ellipsis),
               ),
             ),
           ],
