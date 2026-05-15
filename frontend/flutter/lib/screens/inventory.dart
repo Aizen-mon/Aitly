@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import '../services/api.dart';
 
@@ -63,9 +64,22 @@ class _InventoryScreenState extends State<InventoryScreen>
   Future<void> _pickImageFromGallery() async {
     try {
       setState(() => _isScanning = true);
-      final XFile? image = await _imagePicker.pickImage(source: ImageSource.gallery);
-      if (image != null) {
-        await _processImageFile(image);
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      
+      if (result != null && result.files.single.bytes != null) {
+        final bytes = result.files.single.bytes!;
+        final base64String = base64Encode(bytes);
+        
+        setState(() {
+          _selectedImageBase64 = base64String;
+          _selectedImageName = result.files.single.name;
+          _scannedText = null;
+        });
+        
+        _extractTextFromImage(base64String);
       }
     } catch (e) {
       _showSnackbar('Error picking image: $e');
@@ -79,29 +93,21 @@ class _InventoryScreenState extends State<InventoryScreen>
       setState(() => _isScanning = true);
       final XFile? image = await _imagePicker.pickImage(source: ImageSource.camera);
       if (image != null) {
-        await _processImageFile(image);
+        final bytes = await image.readAsBytes();
+        final base64String = base64Encode(bytes);
+        
+        setState(() {
+          _selectedImageBase64 = base64String;
+          _selectedImageName = image.name;
+          _scannedText = null;
+        });
+        
+        _extractTextFromImage(base64String);
       }
     } catch (e) {
       _showSnackbar('Error capturing image: $e');
     } finally {
       setState(() => _isScanning = false);
-    }
-  }
-
-  Future<void> _processImageFile(XFile imageFile) async {
-    try {
-      final bytes = await imageFile.readAsBytes();
-      final base64String = base64Encode(bytes);
-      
-      setState(() {
-        _selectedImageBase64 = base64String;
-        _selectedImageName = imageFile.name;
-        _scannedText = null;
-      });
-
-      _extractTextFromImage(base64String);
-    } catch (e) {
-      _showSnackbar('Error processing image: $e');
     }
   }
 
