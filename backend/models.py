@@ -229,10 +229,22 @@ class ConversationSession(Base):
     session_id = Column(String(120), nullable=False, unique=True, index=True)
     current_flow = Column(String(120))
     current_step = Column(String(120))
+    previous_entities = Column(Text, default="{}", nullable=False)
+    active_customer = Column(String(200))
+    active_products = Column(Text, default="[]", nullable=False)
+    last_intent = Column(String(120))
     context_json = Column(Text, default="{}", nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     def to_dict(self):
+        try:
+            previous_entities = json.loads(self.previous_entities or "{}")
+        except Exception:
+            previous_entities = {}
+        try:
+            active_products = json.loads(self.active_products or "[]")
+        except Exception:
+            active_products = []
         try:
             context = json.loads(self.context_json or "{}")
         except Exception:
@@ -242,8 +254,46 @@ class ConversationSession(Base):
             "session_id": self.session_id,
             "current_flow": self.current_flow,
             "current_step": self.current_step,
+            "previous_entities": previous_entities,
+            "active_customer": self.active_customer,
+            "active_products": active_products,
+            "last_intent": self.last_intent,
             "context": context,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class SyncQueueItem(Base, TimestampMixin):
+    __tablename__ = "sync_queue_items"
+
+    id = Column(Integer, primary_key=True)
+    action_type = Column(String(80), nullable=False, index=True)
+    entity_type = Column(String(80), nullable=False, index=True)
+    payload_json = Column(Text, default="{}", nullable=False)
+    status = Column(String(40), default="pending", nullable=False, index=True)
+    retry_count = Column(Integer, default=0, nullable=False)
+    next_retry_at = Column(DateTime, nullable=True)
+    last_error = Column(Text)
+    reference = Column(String(120))
+    processed_at = Column(DateTime, nullable=True)
+
+    def to_dict(self):
+        try:
+            payload = json.loads(self.payload_json or "{}")
+        except Exception:
+            payload = {}
+        return {
+            "id": self.id,
+            "action_type": self.action_type,
+            "entity_type": self.entity_type,
+            "payload": payload,
+            "status": self.status,
+            "retry_count": int(self.retry_count or 0),
+            "next_retry_at": self.next_retry_at.isoformat() if self.next_retry_at else None,
+            "last_error": self.last_error,
+            "reference": self.reference,
+            "processed_at": self.processed_at.isoformat() if self.processed_at else None,
+            **self._base_dict(),
         }
 
 

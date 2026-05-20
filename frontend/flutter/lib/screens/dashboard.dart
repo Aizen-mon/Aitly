@@ -8,6 +8,9 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic> dashboard = {};
+  Map<String, dynamic> assistantStatus = {};
+  List<Map<String, dynamic>> assistantAlerts = [];
+  String? assistantSummary;
   bool loading = true;
   String? errorMessage;
 
@@ -15,6 +18,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     fetchDashboardData();
+    fetchAssistantInsights();
   }
 
   fetchDashboardData() async {
@@ -38,6 +42,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> fetchAssistantInsights() async {
+    try {
+      final status = await Api.get('/assistant/status');
+      final summary = await Api.get('/assistant/summary');
+      if (!mounted) return;
+      setState(() {
+        assistantStatus = (status is Map) ? Map<String, dynamic>.from(status as Map) : {};
+        assistantAlerts = List<Map<String, dynamic>>.from((status is Map ? status['alerts'] : null) ?? []);
+        assistantSummary = summary?['summary']?.toString();
+      });
+    } catch (_) {
+      // Keep dashboard usable even if assistant endpoints are unavailable.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final kpis = dashboard['kpis'] as Map<String, dynamic>? ?? {};
@@ -56,7 +75,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           foregroundColor: Colors.black87,
         ),
         body: RefreshIndicator(
-          onRefresh: () async => fetchDashboardData(),
+          onRefresh: () async {
+            await fetchDashboardData();
+            await fetchAssistantInsights();
+          },
           child: loading
               ? const Center(child: CircularProgressIndicator())
               : errorMessage != null
@@ -101,9 +123,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   color: Colors.grey[600],
                                 ),
                               ),
+                              if (assistantSummary != null) ...[
+                                const SizedBox(height: 12),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue[50],
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: Colors.blue[100]!),
+                                  ),
+                                  child: Text(
+                                    assistantSummary!,
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: Colors.blue[900],
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
+                        if (assistantStatus.isNotEmpty) ...[
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _buildStatusCard(),
+                          ),
+                        ],
                         // KPI Section Title
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
@@ -177,6 +224,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ...?dashboard['recent_activity']
                             ?.map<Widget>((activity) => _buildActivityTile(activity))
                             .toList(),
+                        if (assistantAlerts.isNotEmpty) ...[
+                          const SizedBox(height: 20),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Text(
+                              'Smart Alerts',
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          ...assistantAlerts.take(5).map(_buildAlertTile),
+                        ],
                         const SizedBox(height: 28),
                         // Low Stock Items
                         Padding(
@@ -277,6 +337,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
           fontWeight: FontWeight.bold,
           color: (activity['amount'] ?? 0) > 0 ? Colors.green : Colors.red,
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatusCard() {
+    final sync = assistantStatus['sync'] as Map<String, dynamic>? ?? {};
+    final connected = sync['connected'] == true;
+    final pending = sync['pending_count'] ?? 0;
+    final failed = sync['failed_count'] ?? 0;
+
+    return Card(
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: (connected ? Colors.green : Colors.orange).withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                connected ? Icons.cloud_done : Icons.cloud_off,
+                color: connected ? Colors.green : Colors.orange,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    connected ? 'Connected to Tally' : 'Tally disconnected',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pending sync: $pending • Failed sync: $failed',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: fetchAssistantInsights,
+              child: const Text('Refresh'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlertTile(Map<String, dynamic> alert) {
+    final severity = alert['severity']?.toString() ?? 'info';
+    final color = severity == 'critical'
+        ? Colors.red
+        : severity == 'warning'
+            ? Colors.orange
+            : Colors.blue;
+    final icon = severity == 'critical'
+        ? Icons.report
+        : severity == 'warning'
+            ? Icons.warning_amber
+            : Icons.info_outline;
+
+    return Card(
+      color: color.withOpacity(0.05),
+      child: ListTile(
+        leading: Icon(icon, color: color),
+        title: Text(alert['message']?.toString() ?? ''),
+        subtitle: Text(alert['type']?.toString() ?? 'alert'),
       ),
     );
   }

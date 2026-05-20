@@ -8,18 +8,24 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from database import session_scope
 from models import Customer, Invoice, Payment, Product, Transaction
+from services.action_router import ActionRouter
+from services.assistant_context import AssistantContext
 from services.entity_parser import EntityParser
 from services.response_builder import ResponseBuilder
 
 
 class WorkflowEngine:
-    def __init__(self, repos, invoice_service, dashboard_service, tally_service=None):
+    def __init__(self, repos, invoice_service, dashboard_service, tally_service=None, connector_service=None, summary_service=None, action_router=None):
         self.repos = repos
         self.invoice_service = invoice_service
         self.dashboard = dashboard_service
         self.tally = tally_service
+        self.connector = connector_service
+        self.summary = summary_service
         self.parser = EntityParser()
         self.builder = ResponseBuilder()
+        self.router = action_router or ActionRouter()
+        self._active_context: Optional[AssistantContext] = None
 
     def _ensure_session(self, session_id: str):
         state = self.repos.conversation_sessions.get_by_session(session_id)
@@ -29,6 +35,10 @@ class WorkflowEngine:
             session_id=session_id,
             current_flow=None,
             current_step=None,
+            previous_entities=json.dumps({}),
+            active_customer=None,
+            active_products=json.dumps([]),
+            last_intent=None,
             context_json=json.dumps({}),
         )
 
@@ -39,12 +49,24 @@ class WorkflowEngine:
             return {}
 
     def _save(self, state, context: Dict[str, Any], flow: Optional[str], step: Optional[str]):
+        assistant_context = self._active_context or AssistantContext.from_session(state)
+        assistant_context.current_flow = flow
+        assistant_context.last_intent = context.get("last_intent") or assistant_context.last_intent
+        assistant_context.previous_entities = context.get("previous_entities", assistant_context.previous_entities) if isinstance(context, dict) else assistant_context.previous_entities
+        assistant_context.remember(entities=context.get("previous_entities") if isinstance(context, dict) else None)
         return self.repos.conversation_sessions.update(
             state,
             context_json=json.dumps(context),
             current_flow=flow,
             current_step=step,
+            previous_entities=json.dumps(assistant_context.previous_entities or {}),
+            active_customer=assistant_context.active_customer,
+            active_products=json.dumps(assistant_context.active_products or []),
+            last_intent=assistant_context.last_intent,
         )
+
+    def _session_context(self, session_state) -> AssistantContext:
+        return AssistantContext.from_session(session_state)
 
     def process(
         self,
@@ -63,23 +85,88 @@ class WorkflowEngine:
         product_names = list(product_names or [])
         customer_names = list(customer_names or [])
 
+        assistant_context = self._session_context(session_state)
+        normalized_route = self.router.normalize(
+            session_context=assistant_context,
+            text=text,
+            parsed=parsed,
+            product_names=product_names,
+            customer_names=customer_names,
+        )
+        intent = normalized_route.get("intent", intent)
         entities.update(self.parser.extract(text, product_names=product_names, customer_names=customer_names, context=context))
+        entities.update(normalized_route.get("entities", {}))
+        assistant_context.remember(intent=intent, text=text, entities=entities)
+        self._active_context = assistant_context
+
+        if intent == "sync_status":
+            self._save(session_state, context, None, None)
+            sync_status = self.connector.get_status() if self.connector else self.dashboard.get_sync_status()
+            return self.builder.build(
+                intent="sync_status",
+                title="Tally Sync Status",
+                message="Connected to Tally." if sync_status.get("connected") else "Tally is disconnected. Changes are queued locally.",
+                action="show_sync_status",
+                details=sync_status,
+                session_state={"flow": None, "step": None},
+                speech="Connected to Tally." if sync_status.get("connected") else "Tally is disconnected. Changes are queued locally.",
+            )
+
+        if intent == "business_summary":
+            summary = self.summary.generate_morning_summary() if self.summary else {"summary": "Your summary is ready.", "metrics": {}}
+            self._save(session_state, context, None, None)
+            return self.builder.build(
+                intent="business_summary",
+                title="Business Summary",
+                message=summary.get("summary", "Your summary is ready."),
+                action="show_summary",
+                details=summary,
+                session_state={"flow": None, "step": None},
+                speech=summary.get("summary", "Your summary is ready."),
+            )
+
+        if intent == "assistant_alerts":
+            alerts = self.dashboard.get_assistant_alerts() if hasattr(self.dashboard, "get_assistant_alerts") else {"alerts": []}
+            self._save(session_state, context, None, None)
+            return self.builder.build(
+                intent="assistant_alerts",
+                title="Smart Alerts",
+                message=f"I found {len(alerts.get('alerts', []))} business alerts.",
+                action="show_alerts",
+                details=alerts,
+                session_state={"flow": None, "step": None},
+                speech=f"I found {len(alerts.get('alerts', []))} business alerts.",
+            )
 
         if session_state.current_flow == "create_invoice":
-            return self._continue_invoice_flow(session_state, context, text, entities, product_names, customer_names)
+            result = self._continue_invoice_flow(session_state, context, text, entities, product_names, customer_names)
+            self._active_context = None
+            return result
         if session_state.current_flow == "record_payment":
-            return self._continue_payment_flow(session_state, context, text, entities)
+            result = self._continue_payment_flow(session_state, context, text, entities)
+            self._active_context = None
+            return result
         if session_state.current_flow == "inventory_action":
-            return self._continue_inventory_flow(session_state, context, text, entities)
+            result = self._continue_inventory_flow(session_state, context, text, entities)
+            self._active_context = None
+            return result
 
         if intent == "create_invoice":
-            return self._start_invoice_flow(session_state, context, entities)
+            result = self._start_invoice_flow(session_state, context, entities)
+            self._active_context = None
+            return result
         if intent == "record_payment":
-            return self._start_payment_flow(session_state, context, entities)
+            result = self._start_payment_flow(session_state, context, entities)
+            self._active_context = None
+            return result
         if intent in {"add_inventory", "update_inventory", "delete_inventory", "search_inventory", "low_stock", "inventory_summary"}:
-            return self._handle_inventory_intent(intent, session_state, context, text, entities)
+            result = self._handle_inventory_intent(intent, session_state, context, text, entities)
+            self._active_context = None
+            return result
         if intent in {"today_sales", "pending_dues", "overdue_customers", "recent_transactions", "top_products", "sales_summary"}:
-            return self._handle_business_intent(intent, session_state, entities)
+            result = self._handle_business_intent(intent, session_state, entities)
+            self._active_context = None
+            return result
 
         if "dashboard" in normalized or "refresh" in normalized:
             return self.builder.build(
@@ -93,6 +180,7 @@ class WorkflowEngine:
 
         context["last_text"] = text
         self._save(session_state, context, None, None)
+        self._active_context = None
         return self.builder.build(
             intent="general",
             title="How can I help?",
@@ -257,6 +345,9 @@ class WorkflowEngine:
             payment_dict = payment.to_dict()
             customer_dict = customer.to_dict()
 
+        if self.connector:
+            self.connector.sync_payment({"payment": payment_dict, "customer": customer_dict}, reference=customer_name)
+
         self._save(state, context, None, None)
         return self.builder.build(
             intent="record_payment",
@@ -272,6 +363,11 @@ class WorkflowEngine:
         if intent == "low_stock":
             data = self.dashboard.get_low_stock()
             context["last_low_stock_items"] = data.get("items", [])
+            if data.get("items"):
+                active_products = [item.get("name") for item in data.get("items", []) if item.get("name")]
+                context["active_products"] = active_products
+                if self._active_context:
+                    self._active_context.active_products = active_products[:3]
             self._save(state, context, None, None)
             items = data.get("items", [])
             return self.builder.build(
@@ -324,6 +420,8 @@ class WorkflowEngine:
                 product = self.repos.products.update(product, quantity=float(product.quantity or 0) + float(quantity))
             else:
                 product = self.repos.products.create(item_name=product_name, quantity=float(quantity), rate=0.0, tax_percent=18.0, reorder_level=0.0)
+            if self.connector:
+                self.connector.sync_inventory_change({"action": "add_inventory", "product": product.to_dict(), "quantity": quantity}, reference=product_name)
             self._save(state, context, None, None)
             return self.builder.build(
                 intent="add_inventory",
@@ -344,6 +442,8 @@ class WorkflowEngine:
             if not product:
                 return self.builder.error(f"I couldn't find {product_name} in inventory.", intent="update_inventory")
             product = self.repos.products.update(product, quantity=float(quantity))
+            if self.connector:
+                self.connector.sync_inventory_change({"action": "update_inventory", "product": product.to_dict(), "quantity": quantity}, reference=product_name)
             self._save(state, context, None, None)
             return self.builder.build(
                 intent="update_inventory",
@@ -362,6 +462,8 @@ class WorkflowEngine:
             if not product:
                 return self.builder.error(f"I couldn't find {product_name} in inventory.", intent="delete_inventory")
             self.repos.products.delete(product)
+            if self.connector:
+                self.connector.sync_inventory_change({"action": "delete_inventory", "product_name": product_name}, reference=product_name)
             self._save(state, context, None, None)
             return self.builder.build(
                 intent="delete_inventory",

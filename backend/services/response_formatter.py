@@ -120,6 +120,52 @@ class ResponseFormatter:
                 "color": "green",
             }
 
+        if intent == "ocr_confirmation":
+            items = data.get("items", [])
+            return {
+                "intent": "ocr_confirmation",
+                "title": "Confirm Bill Scan",
+                "message": f"I found {len(items)} item(s) in the bill. Should I add them to inventory?",
+                "details": data,
+                "action": "confirm_ocr_items",
+                "icon": "document_scanner",
+                "color": "teal",
+            }
+
+        if intent == "sync_status":
+            connected = bool(data.get("connected"))
+            return {
+                "intent": "sync_status",
+                "title": "Tally Sync Status",
+                "message": "Connected to Tally." if connected else "Tally is disconnected. Changes are queued locally.",
+                "details": data,
+                "action": "show_sync_status",
+                "icon": "cloud_done" if connected else "cloud_off",
+                "color": "green" if connected else "orange",
+            }
+
+        if intent == "business_summary":
+            return {
+                "intent": "business_summary",
+                "title": data.get("title", "Business Summary"),
+                "message": data.get("message", "Your daily summary is ready."),
+                "details": data,
+                "action": "show_summary",
+                "icon": "summarize",
+                "color": "blue",
+            }
+
+        if intent == "assistant_alerts":
+            return {
+                "intent": "assistant_alerts",
+                "title": "Smart Alerts",
+                "message": data.get("message", "Here are the latest business alerts."),
+                "details": data,
+                "action": "show_alerts",
+                "icon": "notifications_active",
+                "color": "red",
+            }
+
         if intent == "record_payment":
             return {
                 "intent": "record_payment",
@@ -167,7 +213,7 @@ class ResponseFormatter:
         return {
             "intent": "general",
             "title": "How can I help?",
-            "message": "I can help with sales, stock, dues, invoices, and inventory.",
+            "message": "I can help with sales, stock, dues, invoices, payments, OCR scans, and sync status.",
             "suggestions": [
                 "Show today's sales",
                 "Check low stock items",

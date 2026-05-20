@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 
 from models import ConversationSession
 from repositories import RepositoryBundle
+from services.assistant_context import AssistantContext
 from services.entity_parser import EntityParser
 
 
@@ -34,11 +35,20 @@ class ConversationService:
             return {}
 
     def _save_context(self, state: ConversationSession, context: Dict[str, object], current_flow: Optional[str], current_step: Optional[str]):
+        assistant_context = AssistantContext.from_session(state)
+        assistant_context.current_flow = current_flow
+        assistant_context.last_intent = context.get("last_intent") or assistant_context.last_intent
+        assistant_context.previous_entities = context.get("previous_entities", assistant_context.previous_entities) if isinstance(context, dict) else assistant_context.previous_entities
+
         updated = self.repos.conversation_sessions.update(
             state,
             context_json=json.dumps(context),
             current_flow=current_flow,
             current_step=current_step,
+            previous_entities=json.dumps(assistant_context.previous_entities or {}),
+            active_customer=assistant_context.active_customer,
+            active_products=json.dumps(assistant_context.active_products or []),
+            last_intent=assistant_context.last_intent,
         )
         return updated
 
@@ -58,5 +68,6 @@ class ConversationService:
         detected_intent = intent.get("intent", "general") if isinstance(intent, dict) else "general"
 
         context.setdefault("last_intent", detected_intent)
+        context.setdefault("previous_entities", entities)
         self._save_context(state, context, None, None)
         return {"conversation_state": {"flow": None, "step": None}}

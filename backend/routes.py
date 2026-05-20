@@ -33,6 +33,9 @@ def init_routes(flask_app, services):
     conversation = services.get("conversation")
     voice = services.get("voice")
     ocr = services.get("ocr")
+    summary = services.get("summary")
+    connector = services.get("connector")
+    retry_manager = services.get("retry_manager")
 
     def _known_names(repo, attribute):
         data = repo.list(page=1, per_page=1000)
@@ -101,6 +104,43 @@ def init_routes(flask_app, services):
             "low_stock_items": low_stock.get("items", [])[:5],
             "top_products": top_products.get("products", [])[:5],
         }
+
+    def _extract_ocr_items(text):
+        items = []
+        current = {}
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            lower = line.lower()
+            if lower.startswith("item:"):
+                if current.get("name"):
+                    items.append(current)
+                current = {"name": line.split(":", 1)[1].strip()}
+            elif lower.startswith("product:"):
+                if current.get("name"):
+                    items.append(current)
+                current = {"name": line.split(":", 1)[1].strip()}
+            elif lower.startswith("quantity:") or lower.startswith("qty:"):
+                try:
+                    current["quantity"] = float("".join(ch for ch in line if ch.isdigit() or ch == ".") or 0)
+                except Exception:
+                    pass
+            elif lower.startswith("rate:") or lower.startswith("price:"):
+                try:
+                    current["rate"] = float("".join(ch for ch in line if ch.isdigit() or ch == ".") or 0)
+                except Exception:
+                    pass
+        if current.get("name"):
+            items.append(current)
+        if not items:
+            import re
+
+            for qty, name in re.findall(r"(\d+)\s+([a-z][a-z0-9& .-]{1,}?)(?:\s+and|\s*,|\s+or|$)", text, re.IGNORECASE):
+                cleaned = name.strip().rstrip(".,")
+                if cleaned:
+                    items.append({"name": cleaned.title(), "quantity": float(qty), "rate": 0.0})
+        return items
 
     @api.route("/parse", methods=["POST"])
     def parse_intent():
@@ -415,6 +455,35 @@ def init_routes(flask_app, services):
             return jsonify({"status": "error", "message": "Invalid base64 image payload"}), 400
         return jsonify(ocr.extract_text(image_bytes) if ocr else {"status": "error", "message": "OCR service unavailable"})
 
+    @api.route("/ocr/process", methods=["POST"])
+    def ocr_process():
+        payload = request.json or {}
+        image_data = payload.get("image_base64")
+        session_id = payload.get("session_id") or _session_id()
+        if not image_data:
+            return jsonify({"status": "error", "message": "image_base64 is required"}), 400
+        try:
+            image_bytes = base64.b64decode(image_data)
+        except Exception:
+            return jsonify({"status": "error", "message": "Invalid base64 image payload"}), 400
+
+        extracted = ocr.extract_text(image_bytes) if ocr else {"status": "error", "message": "OCR service unavailable"}
+        text = extracted.get("text", "") if isinstance(extracted, dict) else ""
+        items = _extract_ocr_items(text) if text else []
+        assistant_payload = ResponseFormatter.format_response("ocr_confirmation", {"items": items, "text": text})
+        if items and workflow:
+            assistant_payload["details"]["session_id"] = session_id
+            assistant_payload["details"]["items"] = items
+
+        return jsonify({
+            "status": extracted.get("status", "ok") if isinstance(extracted, dict) else "ok",
+            "session_id": session_id,
+            "text": text,
+            "extracted_items": items,
+            "assistant": assistant_payload,
+            "raw": extracted,
+        })
+
     @api.route("/voice/transcribe", methods=["POST"])
     def voice_transcribe():
         """
@@ -512,5 +581,37 @@ def init_routes(flask_app, services):
             "devices": ["cpu", "cuda"],
             "default_language": "en"
         })
+
+    @api.route("/assistant/status", methods=["GET"])
+    def assistant_status():
+        sync_status = connector.get_status() if connector else dashboard.get_sync_status()
+        alerts = summary.get_alerts() if summary else dashboard.get_assistant_alerts()
+        return jsonify({
+            "sync": sync_status,
+            "alerts": alerts.get("alerts", []),
+            "pending_sync_count": sync_status.get("pending_count", 0),
+            "failed_sync_count": sync_status.get("failed_count", 0),
+            "tally": "connected" if sync_status.get("connected") else "disconnected",
+        })
+
+    @api.route("/assistant/summary", methods=["GET"])
+    def assistant_summary():
+        return jsonify(summary.generate_morning_summary() if summary else {"summary": "Summary unavailable."})
+
+    @api.route("/assistant/alerts", methods=["GET"])
+    def assistant_alerts():
+        return jsonify(summary.get_alerts() if summary else dashboard.get_assistant_alerts())
+
+    @api.route("/sync/status", methods=["GET"])
+    def sync_status():
+        return jsonify(connector.get_status() if connector else dashboard.get_sync_status())
+
+    @api.route("/sync/retry", methods=["POST"])
+    def sync_retry():
+        if retry_manager:
+            return jsonify(retry_manager.process_due_jobs())
+        if connector:
+            return jsonify(connector.process_due_jobs())
+        return jsonify({"processed": 0, "succeeded": 0, "failed": 0})
 
     flask_app.register_blueprint(api)

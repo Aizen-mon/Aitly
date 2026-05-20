@@ -159,9 +159,11 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
     setState(() => _isScanning = true);
 
     try {
-      final response = await Api.post('/ocr/extract', {'image_base64': base64Image});
+      final response = await Api.post('/ocr/process', {'image_base64': base64Image});
       final extractedText = response?['text']?.toString();
       final status = response?['status']?.toString();
+      final assistant = response?['assistant'] as Map<String, dynamic>?;
+      final extractedItems = List<Map<String, dynamic>>.from(response?['extracted_items'] ?? []);
 
       final textToParse = (status == 'ok' && extractedText != null && extractedText.trim().isNotEmpty)
           ? extractedText
@@ -180,8 +182,16 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
       ''';
 
       setState(() => _scannedText = textToParse);
-      _parseAndAutoFillBillItems(textToParse);
-      _showSnackbar(status == 'ok' ? '✓ Bill scanned successfully! Items extracted.' : 'OCR fallback used; review extracted items.', isSuccess: true);
+      if (extractedItems.isNotEmpty) {
+        _showExtractedItemsDialog(extractedItems);
+      } else {
+        _parseAndAutoFillBillItems(textToParse);
+      }
+      final assistantMessage = assistant?['message']?.toString();
+      _showSnackbar(
+        assistantMessage ?? (status == 'ok' ? '✓ Bill scanned successfully! Items extracted.' : 'OCR fallback used; review extracted items.'),
+        isSuccess: true,
+      );
       
     } catch (e) {
       _showSnackbar('Error extracting text: $e');

@@ -65,6 +65,7 @@ def init_db():
         Product,
         QueryHistory,
         SyncLog,
+        SyncQueueItem,
         Transaction,
         User,
         VoiceHistory,

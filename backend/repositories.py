@@ -19,6 +19,7 @@ from models import (
     Product,
     QueryHistory,
     SyncLog,
+    SyncQueueItem,
     Transaction,
     User,
     VoiceHistory,
@@ -207,6 +208,38 @@ class SyncLogRepository(BaseRepository[SyncLog]):
         super().__init__(session_factory, SyncLog)
 
 
+class SyncQueueRepository(BaseRepository[SyncQueueItem]):
+    def __init__(self, session_factory=SessionLocal):
+        super().__init__(session_factory, SyncQueueItem)
+
+    def pending(self, limit: int = 20):
+        session = self._session()
+        try:
+            return (
+                session.query(SyncQueueItem)
+                .filter(SyncQueueItem.status.in_(["pending", "retrying"]))
+                .order_by(SyncQueueItem.updated_at.asc(), SyncQueueItem.created_at.asc())
+                .limit(limit)
+                .all()
+            )
+        finally:
+            session.close()
+
+    def due(self, limit: int = 20):
+        from datetime import datetime
+
+        session = self._session()
+        try:
+            now = datetime.utcnow()
+            query = session.query(SyncQueueItem).filter(
+                SyncQueueItem.status.in_(["pending", "retrying"]),
+                (SyncQueueItem.next_retry_at.is_(None)) | (SyncQueueItem.next_retry_at <= now),
+            )
+            return query.order_by(SyncQueueItem.updated_at.asc(), SyncQueueItem.created_at.asc()).limit(limit).all()
+        finally:
+            session.close()
+
+
 class PaymentRepository(BaseRepository[Payment]):
     def __init__(self, session_factory=SessionLocal):
         super().__init__(session_factory, Payment)
@@ -241,6 +274,6 @@ class RepositoryBundle:
         self.payments = PaymentRepository(session_factory)
         self.conversation_sessions = ConversationSessionRepository(session_factory)
         self.conversations = self.conversation_sessions
-        self.payments = PaymentRepository(session_factory)
-        self.conversations = ConversationStateRepository(session_factory)
+        self.conversation_states = ConversationStateRepository(session_factory)
         self.sync_logs = SyncLogRepository(session_factory)
+        self.sync_queue = SyncQueueRepository(session_factory)

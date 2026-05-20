@@ -19,6 +19,8 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Map<String, dynamic>> suggestedPrompts = [];
   List<Map<String, dynamic>> recentQueries = [];
   List<Map<String, dynamic>> voiceHistory = [];
+  Map<String, dynamic> assistantStatus = {};
+  List<Map<String, dynamic>> assistantAlerts = [];
   bool isLoading = false;
   bool showPrompts = true;
   bool isListening = false;
@@ -30,6 +32,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     loadSuggestedPrompts();
     loadRecentQueries();
+    loadAssistantStatus();
   }
 
   loadRecentQueries() async {
@@ -53,6 +56,19 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     } catch (e) {
       print('Error loading prompts: $e');
+    }
+  }
+
+  loadAssistantStatus() async {
+    try {
+      final data = await Api.get('/assistant/status');
+      if (!mounted) return;
+      setState(() {
+        assistantStatus = (data is Map) ? Map<String, dynamic>.from(data as Map) : {};
+        assistantAlerts = List<Map<String, dynamic>>.from((data is Map ? data['alerts'] : null) ?? []);
+      });
+    } catch (e) {
+      print('Error loading assistant status: $e');
     }
   }
 
@@ -86,6 +102,7 @@ class _ChatScreenState extends State<ChatScreen> {
         await speakAssistantText(assistantMessage);
       }
       await loadRecentQueries();
+      await loadAssistantStatus();
       
       // Show invoice form dialog if action is show_invoice_form
       if (response['action'] == 'show_invoice_form') {
@@ -235,7 +252,55 @@ class _ChatScreenState extends State<ChatScreen> {
                       },
                     ),
             ),
-            if (messages.isNotEmpty && (suggestedPrompts?.isNotEmpty ?? false))
+            if (assistantStatus.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey[50],
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.blueGrey[100]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        assistantStatus['tally'] == 'connected' ? Icons.cloud_done : Icons.cloud_off,
+                        color: assistantStatus['tally'] == 'connected' ? Colors.green : Colors.orange,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          assistantStatus['tally'] == 'connected'
+                              ? 'Connected to Tally'
+                              : 'Tally disconnected. Actions will queue locally.',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                      Text(
+                        '${assistantStatus['pending_sync_count'] ?? 0} pending',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (assistantAlerts.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: assistantAlerts.take(3).map((alert) {
+                    return Chip(
+                      avatar: const Icon(Icons.notifications_active, size: 16),
+                      label: Text(alert['message']?.toString() ?? ''),
+                    );
+                  }).toList(),
+                ),
+              ),
+            if (messages.isNotEmpty && suggestedPrompts.isNotEmpty)
               SuggestedPromptsWidget(
                 prompts: suggestedPrompts,
                 onPromptSelected: _handlePromptSelected,

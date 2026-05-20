@@ -11,9 +11,10 @@ from models import Customer, Invoice, InvoiceItem, Product, SyncLog, Transaction
 
 
 class InvoiceService:
-    def __init__(self, tally_service, repos=None, base_dir: str = None):
+    def __init__(self, tally_service, repos=None, base_dir: str = None, connector_service=None):
         self.tally = tally_service
         self.repos = repos
+        self.connector = connector_service
         self.base_dir = base_dir or os.path.dirname(__file__)
         self.pending_file = os.path.join(self.base_dir, "invoices_pending.jsonl")
 
@@ -78,7 +79,11 @@ class InvoiceService:
             return saved
 
         invoice = saved.get("invoice", {})
-        res = self.tally.post_invoice(invoice_data)
+        if self.connector:
+            res = self.connector.sync_invoice(invoice_data, reference=invoice.get("invoice_number"))
+        else:
+            res = self.tally.post_invoice(invoice_data)
+
         if res.get("status") == "sent":
             with session_scope() as session:
                 stored = session.query(Invoice).filter(Invoice.invoice_number == invoice.get("invoice_number")).one_or_none()
@@ -87,6 +92,14 @@ class InvoiceService:
                     stored.tally_reference = invoice_data.get("tally_reference") or invoice.get("invoice_number")
                 session.add(Transaction(transaction_type="invoice", amount=float(invoice.get("total_amount", 0) or 0), reference=invoice.get("invoice_number")))
             return {"status": "sent", "resp": res.get("response"), "invoice": invoice}
+
+        if res.get("status") == "queued":
+            with session_scope() as session:
+                stored = session.query(Invoice).filter(Invoice.invoice_number == invoice.get("invoice_number")).one_or_none()
+                if stored:
+                    stored.sync_status = "pending"
+                session.add(Transaction(transaction_type="invoice", amount=float(invoice.get("total_amount", 0) or 0), reference=invoice.get("invoice_number")))
+            return {"status": "pending", "error": res.get("message", "Invoice queued for sync."), "invoice": invoice, "queue_item": res.get("queue_item")}
 
         with session_scope() as session:
             stored = session.query(Invoice).filter(Invoice.invoice_number == invoice.get("invoice_number")).one_or_none()

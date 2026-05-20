@@ -2,6 +2,8 @@
 AI Assistant for Tally Users - Flask Backend
 Main application entry point with service initialization and configuration.
 """
+import audioop_compat  # ensure audioop compatibility on Python 3.14+
+
 import logging
 from flask import Flask
 from flask_cors import CORS
@@ -20,6 +22,10 @@ from services.conversation_service import ConversationService
 from services.ocr_service import OCRService
 from services.workflow_engine import WorkflowEngine
 from services.voice_service import VoiceService
+from services.sync_queue import SyncQueueService
+from services.connector_service import ConnectorService
+from services.retry_manager import RetryManager
+from services.summary_service import SummaryService
 from services.stt_service import get_stt_service
 from whisper_config import get_whisper_config
 
@@ -39,10 +45,14 @@ def create_app():
     # Initialize services
     tally = TallyService()
     nlp = SimpleNLP()
-    dashboard = DashboardService(repos=repos, tally=tally)
-    invoice = InvoiceService(tally, repos=repos)
+    sync_queue = SyncQueueService(repos)
+    connector = ConnectorService(tally, sync_queue)
+    retry_manager = RetryManager(connector)
+    dashboard = DashboardService(repos=repos, tally=tally, connector_service=connector)
+    invoice = InvoiceService(tally, repos=repos, connector_service=connector)
     cache = CacheService()
-    workflow = WorkflowEngine(repos=repos, invoice_service=invoice, dashboard_service=dashboard, tally_service=tally)
+    summary = SummaryService(dashboard, connector)
+    workflow = WorkflowEngine(repos=repos, invoice_service=invoice, dashboard_service=dashboard, tally_service=tally, connector_service=connector, summary_service=summary)
     conversation = ConversationService(repos, workflow_engine=workflow)
     voice = VoiceService(repos=repos, nlp_service=nlp, workflow_engine=workflow)
     ocr = OCRService()
@@ -69,11 +79,15 @@ def create_app():
         "voice": voice,
         "ocr": ocr,
         "stt": stt,
+        "summary": summary,
+        "connector": connector,
+        "sync_queue": sync_queue,
+        "retry_manager": retry_manager,
     }
     init_routes(app, services)
 
     # Start background tasks
-    task_manager = BackgroundTaskManager(invoice)
+    task_manager = BackgroundTaskManager(invoice, retry_manager=retry_manager)
     task_manager.start_retry_loop(interval=60)
 
     return app

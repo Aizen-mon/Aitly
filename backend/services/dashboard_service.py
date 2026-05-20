@@ -11,9 +11,10 @@ from .tally_service import TallyService
 
 
 class DashboardService:
-    def __init__(self, repos=None, tally: TallyService = None):
+    def __init__(self, repos=None, tally: TallyService = None, connector_service=None):
         self.repos = repos
         self.tally = tally or TallyService()
+        self.connector = connector_service
 
     def _db_available(self):
         return self.repos is not None
@@ -182,6 +183,42 @@ class DashboardService:
                     "inventory_value": float(inventory_value),
                 }
             }
+
+    def get_sync_status(self):
+        if self.connector:
+            return self.connector.get_status()
+        return {
+            "connected": self.tally.is_tally_available(),
+            "last_sync_at": None,
+            "pending_count": 0,
+            "failed_count": 0,
+        }
+
+    def get_assistant_alerts(self):
+        low_stock = self.get_low_stock()
+        overdue = self.get_overdue_customers()
+        sync = self.get_sync_status()
+
+        alerts = []
+        for item in (low_stock.get("items", []) or [])[:5]:
+            alerts.append({
+                "type": "low_stock",
+                "severity": "warning",
+                "message": f"{item.get('name')} is low on stock.",
+            })
+        for customer in (overdue.get("customers", []) or [])[:5]:
+            alerts.append({
+                "type": "overdue_customer",
+                "severity": "critical",
+                "message": f"{customer.get('customer_name')} payment overdue by several days.",
+            })
+        if sync.get("failed_count", 0):
+            alerts.append({
+                "type": "sync_failure",
+                "severity": "warning",
+                "message": f"{sync['failed_count']} sync jobs failed.",
+            })
+        return {"alerts": alerts, "count": len(alerts), "sync": sync}
 
     def get_quotation_context(self, limit=10, days=30, threshold=10):
         inventory = self.get_inventory()
