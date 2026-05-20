@@ -35,7 +35,8 @@ logger = logging.getLogger(__name__)
 def create_app():
     """Create and configure Flask application."""
     app = Flask(__name__)
-    CORS(app)
+    # Allow cross-origin requests from the frontend (including localhost and 127.0.0.1)
+    CORS(app, resources={r"/api/*": {"origins": "*"}})
 
     init_db()
 

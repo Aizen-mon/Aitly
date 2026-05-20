@@ -276,6 +276,7 @@ class SyncQueueItem(Base, TimestampMixin):
     last_error = Column(Text)
     reference = Column(String(120))
     processed_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     def to_dict(self):
         try:

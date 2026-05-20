@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../services/api.dart';
 import '../services/assistant_speech.dart';
 import '../widgets/chat_widgets.dart';
-import '../widgets/voice_button.dart';
 import '../widgets/invoice_form.dart';
+import '../widgets/simple_voice_control.dart';
 
 class ChatScreen extends StatefulWidget {
   @override
@@ -24,7 +24,6 @@ class _ChatScreenState extends State<ChatScreen> {
   bool isLoading = false;
   bool showPrompts = true;
   bool isListening = false;
-  bool continuousListening = true;
   bool muted = isAssistantMuted;
 
   @override
@@ -183,11 +182,6 @@ class _ChatScreenState extends State<ChatScreen> {
           backgroundColor: Colors.white,
           foregroundColor: Colors.black87,
           actions: [
-            IconButton(
-              tooltip: continuousListening ? 'Continuous voice on' : 'Continuous voice off',
-              icon: Icon(continuousListening ? Icons.graphic_eq : Icons.graphic_eq_outlined),
-              onPressed: () => setState(() => continuousListening = !continuousListening),
-            ),
             IconButton(
               tooltip: muted ? 'Unmute assistant' : 'Mute assistant',
               icon: Icon(muted ? Icons.volume_off : Icons.volume_up),
@@ -357,6 +351,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: SimpleVoiceControl(
+                onListeningChanged: (listening) {
+                  setState(() => isListening = listening);
+                },
+                onFinalTranscript: _handleVoiceResult,
+              ),
+            ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               decoration: BoxDecoration(
@@ -371,7 +374,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       onSubmitted: (text) => sendMessage(text),
                       enabled: !isLoading,
                       decoration: InputDecoration(
-                        hintText: 'Type or press mic to speak...',
+                        hintText: isListening ? 'Listening... speak now' : 'Type a message',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
                           borderSide: BorderSide(color: Colors.grey[300]!),
@@ -400,14 +403,6 @@ class _ChatScreenState extends State<ChatScreen> {
                             : null,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  VoiceButton(
-                    continuous: continuousListening,
-                    onListeningChanged: (listening) {
-                      setState(() => isListening = listening);
-                    },
-                    onResult: _handleVoiceResult,
                   ),
                   const SizedBox(width: 8),
                   FloatingActionButton(

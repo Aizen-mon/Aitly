@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api.dart';
+import '../widgets/simple_voice_control.dart';
 
 class DashboardScreen extends StatefulWidget {
   @override
@@ -11,8 +12,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic> assistantStatus = {};
   List<Map<String, dynamic>> assistantAlerts = [];
   String? assistantSummary;
+  String? _voiceTranscript;
+  String? _voiceResponse;
+  bool _voiceProcessing = false;
   bool loading = true;
   String? errorMessage;
+  final String _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
 
   @override
   void initState() {
@@ -145,6 +150,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ],
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        _buildVoiceCommandCard(),
+                        const SizedBox(height: 24),
                         if (assistantStatus.isNotEmpty) ...[
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
@@ -389,6 +397,130 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildVoiceCommandCard() {
+    return Card(
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.mic, color: Colors.blue),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Voice Command',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Start and stop listening directly from the dashboard.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SimpleVoiceControl(
+              onListeningChanged: (_) {},
+              onFinalTranscript: _handleVoiceTranscript,
+            ),
+            if (_voiceProcessing) ...[
+              const SizedBox(height: 12),
+              const LinearProgressIndicator(minHeight: 3),
+            ],
+            if (_voiceTranscript != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Transcript',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey[50],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(_voiceTranscript!),
+              ),
+            ],
+            if (_voiceResponse != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Assistant Response',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(_voiceResponse!),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleVoiceTranscript(String transcript) async {
+    if (!mounted || transcript.trim().isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _voiceTranscript = transcript;
+      _voiceResponse = null;
+      _voiceProcessing = true;
+    });
+
+    try {
+      final response = await Api.post('/parse', {
+        'text': transcript,
+        'session_id': _sessionId,
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _voiceResponse = response['speech']?.toString() ?? response['message']?.toString() ?? 'Command processed';
+      });
+
+      await fetchAssistantInsights();
+      await fetchDashboardData();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _voiceResponse = 'Could not process voice command: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _voiceProcessing = false;
+        });
+      }
+    }
   }
 
   Widget _buildAlertTile(Map<String, dynamic> alert) {

@@ -6,39 +6,61 @@ class Api {
   static const base = 'http://127.0.0.1:5000/api'; // use 10.0.2.2 for Android emulator
 
   static Future<dynamic> get(String path) async {
-    try {
-      final res = await http.get(Uri.parse(base + path));
-      if (res.statusCode == 200) return json.decode(res.body);
-      return null;
-    } catch (e) {
-      print('API GET error: $e');
-      return null;
+    const int maxRetries = 3;
+    int attempt = 0;
+    while (attempt < maxRetries) {
+      try {
+        final res = await http.get(Uri.parse(base + path));
+        if (res.statusCode == 200) return json.decode(res.body);
+        // Try to parse error body if available
+        try {
+          return json.decode(res.body);
+        } catch (_) {
+          return {'status': 'error', 'message': 'HTTP ${res.statusCode}'};
+        }
+      } catch (e) {
+        attempt += 1;
+        print('API GET error (attempt $attempt): $e');
+        if (attempt >= maxRetries) {
+          return {'status': 'error', 'message': e.toString()};
+        }
+        await Future.delayed(Duration(milliseconds: 400 * attempt));
+      }
     }
+    return {'status': 'error', 'message': 'Unknown error'};
   }
 
   static Future<dynamic> post(String path, Map body) async {
-    try {
-      final res = await http.post(
-        Uri.parse(base + path),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-      
-      if (res.statusCode == 200 || res.statusCode == 201) {
-        return json.decode(res.body);
-      } else if (res.statusCode == 500 || res.statusCode == 400) {
-        // Try to parse error response
+    const int maxRetries = 3;
+    int attempt = 0;
+    while (attempt < maxRetries) {
+      try {
+        final res = await http.post(
+          Uri.parse(base + path),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(body),
+        );
+
+        if (res.statusCode == 200 || res.statusCode == 201) {
+          return json.decode(res.body);
+        }
+
+        // Parse error body when possible
         try {
           return json.decode(res.body);
-        } catch (e) {
-          return {'status': 'error', 'message': 'Server error'};
+        } catch (_) {
+          return {'status': 'error', 'message': 'HTTP ${res.statusCode}'};
         }
+      } catch (e) {
+        attempt += 1;
+        print('API POST error (attempt $attempt): $e');
+        if (attempt >= maxRetries) {
+          return {'status': 'error', 'message': e.toString()};
+        }
+        await Future.delayed(Duration(milliseconds: 400 * attempt));
       }
-      return null;
-    } catch (e) {
-      print('API POST error: $e');
-      return {'status': 'error', 'message': e.toString()};
     }
+    return {'status': 'error', 'message': 'Unknown error'};
   }
 
   static Future<dynamic> delete(String path) async {
