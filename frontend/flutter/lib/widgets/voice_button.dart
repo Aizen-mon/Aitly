@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
-import 'dart:js' as js;
+import '../services/voice_input.dart';
 
 class VoiceButton extends StatefulWidget {
   final Function(String) onResult;
-  final VoidCallback? onStart;
-  final VoidCallback? onStop;
+  final ValueChanged<bool>? onListeningChanged;
+  final bool continuous;
 
   const VoiceButton({
     required this.onResult,
-    this.onStart,
-    this.onStop,
+    this.onListeningChanged,
+    this.continuous = false,
     Key? key,
   }) : super(key: key);
 
@@ -19,49 +19,45 @@ class VoiceButton extends StatefulWidget {
 
 class _VoiceButtonState extends State<VoiceButton> {
   bool _isListening = false;
-  String _recognizedText = '';
+  bool _stopRequested = false;
 
-  void _startWebSpeechRecognition() async {
-    widget.onStart?.call();
-    
-    if (mounted) {
-      setState(() {
-        _isListening = true;
-        _recognizedText = '';
-      });
-    }
+  Future<void> _startWebSpeechRecognition() async {
+    _stopRequested = false;
+    _setListening(true);
 
     try {
-      // Use Web Speech API via JavaScript
-      final result = await js.context.callMethod('startVoiceInput');
-      
-      if (result != null && result.toString().isNotEmpty) {
-        _recognizedText = result.toString();
-        if (mounted) {
-          widget.onResult(_recognizedText);
-          setState(() {
-            _isListening = false;
-          });
+      while (!_stopRequested) {
+        final result = await startVoiceInput();
+        if (!mounted || _stopRequested) {
+          break;
         }
-        widget.onStop?.call();
-      } else {
-        if (mounted) {
-          setState(() {
-            _isListening = false;
-          });
+
+        if (result != null && result.toString().isNotEmpty) {
+          widget.onResult(result.toString());
         }
-        widget.onStop?.call();
+
+        if (!widget.continuous) {
+          break;
+        }
       }
     } catch (e) {
-      print('Speech recognition error: $e');
       _showErrorSnackbar('Microphone access denied or not available');
-      if (mounted) {
-        setState(() {
-          _isListening = false;
-        });
-      }
-      widget.onStop?.call();
+    } finally {
+      _setListening(false);
     }
+  }
+
+  void _stopListening() {
+    _stopRequested = true;
+    _setListening(false);
+  }
+
+  void _setListening(bool listening) {
+    if (!mounted) return;
+    setState(() {
+      _isListening = listening;
+    });
+    widget.onListeningChanged?.call(listening);
   }
 
   void _showErrorSnackbar(String message) {
@@ -76,31 +72,35 @@ class _VoiceButtonState extends State<VoiceButton> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: _isListening ? Colors.red[400] : Colors.blue,
-        boxShadow: _isListening
-            ? [
-                BoxShadow(
-                  color: Colors.red.withOpacity(0.5),
-                  spreadRadius: 8,
-                  blurRadius: 12,
-                ),
-              ]
-            : [],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: _isListening ? null : _startWebSpeechRecognition,
-          customBorder: const CircleBorder(),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Icon(
-              _isListening ? Icons.mic : Icons.mic_none,
-              color: Colors.white,
-              size: 24,
+    return AnimatedScale(
+      scale: _isListening ? 1.08 : 1.0,
+      duration: const Duration(milliseconds: 180),
+      child: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _isListening ? Colors.red[400] : Colors.blue,
+          boxShadow: _isListening
+              ? [
+                  BoxShadow(
+                    color: Colors.red.withOpacity(0.5),
+                    spreadRadius: 8,
+                    blurRadius: 12,
+                  ),
+                ]
+              : [],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _isListening ? _stopListening : _startWebSpeechRecognition,
+            customBorder: const CircleBorder(),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Icon(
+                _isListening ? Icons.mic : Icons.mic_none,
+                color: Colors.white,
+                size: 24,
+              ),
             ),
           ),
         ),

@@ -40,4 +40,17 @@ class Api {
       return {'status': 'error', 'message': e.toString()};
     }
   }
+
+  static Future<dynamic> delete(String path) async {
+    try {
+      final res = await http.delete(Uri.parse(base + path));
+      if (res.statusCode == 200) {
+        return json.decode(res.body);
+      }
+      return null;
+    } catch (e) {
+      print('API DELETE error: $e');
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
 }

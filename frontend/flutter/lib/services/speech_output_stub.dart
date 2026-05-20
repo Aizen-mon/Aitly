@@ -1,0 +1,1 @@
+Future<void> speakAssistantText(String text) async {}

@@ -21,15 +21,36 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
   final _discountController = TextEditingController();
 
   List<Map<String, dynamic>> _items = [];
+  List<Map<String, dynamic>> _availableItems = [];
+  List<Map<String, dynamic>> _filteredItems = [];
   bool _isLoading = false;
   bool _snapshotLoading = true;
   String? _snapshotError;
   Map<String, dynamic> _snapshot = {};
+  bool _showItemSuggestions = false;
 
   @override
   void initState() {
     super.initState();
+    _itemNameController.addListener(_onItemNameChanged);
     _loadTallySnapshot();
+  }
+
+  void _onItemNameChanged() {
+    final query = _itemNameController.text.toLowerCase().trim();
+    
+    setState(() {
+      if (query.isEmpty) {
+        _filteredItems = [];
+        _showItemSuggestions = false;
+      } else {
+        _filteredItems = _availableItems.where((item) {
+          final name = item['name']?.toString().toLowerCase() ?? '';
+          return name.contains(query);
+        }).toList();
+        _showItemSuggestions = _filteredItems.isNotEmpty;
+      }
+    });
   }
 
   Future<void> _loadTallySnapshot() async {
@@ -41,6 +62,34 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
         _snapshot = data is Map
             ? Map<String, dynamic>.from(data as Map)
             : <String, dynamic>{};
+        
+        // Extract available items from catalog and inventory
+        final quotationContext = _snapshot['quotation_context'] as Map? ?? _snapshot;
+        final catalog = quotationContext['catalog'] as List? ?? [];
+        final inventory = _snapshot['inventory'] as Map?;
+        final inventoryItems = (inventory?['items'] as List?) ?? [];
+        
+        // Build combined list of available items
+        _availableItems = [];
+        
+        // Add catalog items
+        for (var item in catalog) {
+          if (item is Map) {
+            _availableItems.add(Map<String, dynamic>.from(item));
+          }
+        }
+        
+        // Add inventory items if not already in catalog
+        for (var item in inventoryItems) {
+          if (item is Map) {
+            final itemMap = Map<String, dynamic>.from(item);
+            final name = itemMap['name']?.toString().toLowerCase() ?? '';
+            if (!_availableItems.any((i) => (i['name']?.toString().toLowerCase() ?? '') == name)) {
+              _availableItems.add(itemMap);
+            }
+          }
+        }
+        
         _snapshotLoading = false;
         _snapshotError = null;
       });
@@ -81,8 +130,10 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
   void _selectCatalogItem(Map<String, dynamic> item) {
     setState(() {
       _itemNameController.text = item['name']?.toString() ?? '';
-      _priceController.text = (item['dp'] ?? item['rate'] ?? 0).toString();
-      _discountController.text = (item['discount_percent'] ?? 0).toString();
+      _priceController.text = (item['dp'] ?? item['rate'] ?? item['price'] ?? 0).toString();
+      _discountController.text = (item['discount_percent'] ?? item['discount'] ?? 0).toString();
+      _showItemSuggestions = false;
+      _filteredItems = [];
     });
   }
 
@@ -286,17 +337,99 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
                       ),
                       child: Column(
                         children: [
-                          TextField(
-                            controller: _itemNameController,
-                            decoration: InputDecoration(
-                              labelText: 'Item Name *',
-                              hintText: 'Enter product name (or tap catalog below)',
-                              prefixIcon: const Icon(Icons.shopping_bag_outlined),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(6),
+                          // Item Name Input with Autocomplete
+                          Column(
+                            children: [
+                              TextField(
+                                controller: _itemNameController,
+                                decoration: InputDecoration(
+                                  labelText: 'Item Name *',
+                                  hintText: 'Enter product name (or tap catalog below)',
+                                  prefixIcon: const Icon(Icons.shopping_bag_outlined),
+                                  suffixIcon: _itemNameController.text.isNotEmpty
+                                      ? IconButton(
+                                          icon: const Icon(Icons.clear),
+                                          onPressed: () {
+                                            setState(() {
+                                              _itemNameController.clear();
+                                              _filteredItems = [];
+                                              _showItemSuggestions = false;
+                                            });
+                                          },
+                                        )
+                                      : null,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                ),
+                                enabled: !_isLoading,
+                                onChanged: (_) => _onItemNameChanged(),
                               ),
-                            ),
-                            enabled: !_isLoading,
+                              // Autocomplete Suggestions Dropdown
+                              if (_showItemSuggestions && _filteredItems.isNotEmpty)
+                                Container(
+                                  margin: const EdgeInsets.only(top: 4),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(color: Colors.grey[300]!),
+                                    borderRadius: BorderRadius.circular(6),
+                                    color: Colors.white,
+                                  ),
+                                  constraints: BoxConstraints(
+                                    maxHeight: 200,
+                                  ),
+                                  child: ListView.builder(
+                                    shrinkWrap: true,
+                                    itemCount: _filteredItems.length,
+                                    itemBuilder: (context, index) {
+                                      final item = _filteredItems[index];
+                                      final name = item['name']?.toString() ?? '';
+                                      final stock = item['stock_qty'] ?? item['qty'] ?? 'N/A';
+                                      final rate = item['rate'] ?? item['dp'] ?? item['price'] ?? 0;
+                                      
+                                      return Material(
+                                        child: InkWell(
+                                          onTap: () {
+                                            _selectCatalogItem(item);
+                                            FocusScope.of(context).unfocus();
+                                          },
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 10,
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  name,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    Text(
+                                                      'Stock: $stock | Rate: ₹$rate',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors.grey[600],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ],
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -833,6 +966,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
   @override
   void dispose() {
     _customerController.dispose();
+    _itemNameController.removeListener(_onItemNameChanged);
     _itemNameController.dispose();
     _quantityController.dispose();
     _priceController.dispose();

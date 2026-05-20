@@ -37,23 +37,23 @@
     function startVoiceInput() {
       return new Promise((resolve, reject) => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        
+
         if (!SpeechRecognition) {
           reject('Speech Recognition not supported in this browser');
           return;
         }
-        
+
         const recognition = new SpeechRecognition();
         recognition.continuous = false;
         recognition.interimResults = false;
         recognition.language = 'en-US';
-        
+
         let transcript = '';
-        
+
         recognition.onstart = () => {
           console.log('Voice recording started...');
         };
-        
+
         recognition.onresult = (event) => {
           transcript = '';
           for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -63,12 +63,12 @@
           }
           console.log('Recognized: ' + transcript);
         };
-        
+
         recognition.onerror = (event) => {
           console.error('Speech recognition error:', event.error);
           reject(event.error);
         };
-        
+
         recognition.onend = () => {
           console.log('Voice recording ended');
           if (transcript) {
@@ -77,7 +77,7 @@
             reject('No speech detected');
           }
         };
-        
+
         try {
           recognition.start();
         } catch (e) {
@@ -85,6 +85,16 @@
           reject(e.message);
         }
       });
+    }
+
+    function speakText(text) {
+      if (!window.speechSynthesis) {
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(String(text || ''));
+      utterance.lang = 'en-IN';
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
     }
   </script>
 </head>

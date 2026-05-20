@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api.dart';
+import '../services/assistant_speech.dart';
 import '../widgets/chat_widgets.dart';
 import '../widgets/voice_button.dart';
 import '../widgets/invoice_form.dart';
@@ -12,16 +13,35 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final String _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
   
   List<Map<String, dynamic>> messages = [];
   List<Map<String, dynamic>> suggestedPrompts = [];
+  List<Map<String, dynamic>> recentQueries = [];
+  List<Map<String, dynamic>> voiceHistory = [];
   bool isLoading = false;
   bool showPrompts = true;
+  bool isListening = false;
+  bool continuousListening = true;
+  bool muted = isAssistantMuted;
 
   @override
   void initState() {
     super.initState();
     loadSuggestedPrompts();
+    loadRecentQueries();
+  }
+
+  loadRecentQueries() async {
+    try {
+      final data = await Api.get('/query_history?per_page=8');
+      if (!mounted) return;
+      setState(() {
+        recentQueries = List<Map<String, dynamic>>.from(data['items'] ?? []);
+      });
+    } catch (e) {
+      print('Error loading queries: $e');
+    }
   }
 
   loadSuggestedPrompts() async {
@@ -38,9 +58,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   sendMessage(String text) async {
     if (text.trim().isEmpty) return;
+    final timestamp = DateTime.now().toIso8601String();
 
     setState(() {
-      messages.add({'role': 'user', 'text': text});
+      messages.add({'role': 'user', 'text': text, 'timestamp': timestamp, 'source': 'typed'});
       isLoading = true;
       showPrompts = false;
     });
@@ -48,16 +69,23 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
 
     try {
-      final response = await Api.post('/parse', {'text': text});
+      final response = await Api.post('/parse', {'text': text, 'session_id': _sessionId});
       if (!mounted) return;
       
       setState(() {
         messages.add({
           'role': 'assistant',
+          'timestamp': DateTime.now().toIso8601String(),
           ...?response as Map<String, dynamic>,
         });
         isLoading = false;
       });
+
+      final assistantMessage = (response['speech'] ?? response['message'])?.toString();
+      if (assistantMessage != null && assistantMessage.isNotEmpty) {
+        await speakAssistantText(assistantMessage);
+      }
+      await loadRecentQueries();
       
       // Show invoice form dialog if action is show_invoice_form
       if (response['action'] == 'show_invoice_form') {
@@ -100,6 +128,15 @@ class _ChatScreenState extends State<ChatScreen> {
     sendMessage(promptMap[intent] ?? intent);
   }
 
+  void _handleVoiceResult(String text) {
+    final timestamp = DateTime.now().toIso8601String();
+    setState(() {
+      voiceHistory.insert(0, {'text': text, 'timestamp': timestamp});
+      _controller.text = text;
+    });
+    sendMessage(text);
+  }
+
   void _showInvoiceForm() {
     showDialog(
       context: context,
@@ -128,6 +165,23 @@ class _ChatScreenState extends State<ChatScreen> {
           elevation: 0,
           backgroundColor: Colors.white,
           foregroundColor: Colors.black87,
+          actions: [
+            IconButton(
+              tooltip: continuousListening ? 'Continuous voice on' : 'Continuous voice off',
+              icon: Icon(continuousListening ? Icons.graphic_eq : Icons.graphic_eq_outlined),
+              onPressed: () => setState(() => continuousListening = !continuousListening),
+            ),
+            IconButton(
+              tooltip: muted ? 'Unmute assistant' : 'Mute assistant',
+              icon: Icon(muted ? Icons.volume_off : Icons.volume_up),
+              onPressed: () {
+                setState(() {
+                  muted = !muted;
+                  setAssistantMuted(muted);
+                });
+              },
+            ),
+          ],
         ),
         body: Column(
           children: [
@@ -186,6 +240,58 @@ class _ChatScreenState extends State<ChatScreen> {
                 prompts: suggestedPrompts,
                 onPromptSelected: _handlePromptSelected,
               ),
+            if (recentQueries.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Recent Voice Queries',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: recentQueries
+                          .map(
+                            (item) => InputChip(
+                              label: Text(item['query']?.toString() ?? ''),
+                              onPressed: () => sendMessage(item['query']?.toString() ?? ''),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
+                ),
+              ),
+            if (voiceHistory.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Voice History',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: voiceHistory
+                          .map(
+                            (item) => Chip(
+                              avatar: const Icon(Icons.mic, size: 16),
+                              label: Text('${item['text']?.toString() ?? ''} • ${_formatTime(item['timestamp']?.toString())}'),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
+                ),
+              ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               decoration: BoxDecoration(
@@ -232,18 +338,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   const SizedBox(width: 8),
                   VoiceButton(
-                    onResult: (text) {
-                      setState(() {
-                        _controller.text = text;
-                      });
-                      sendMessage(text);
+                    continuous: continuousListening,
+                    onListeningChanged: (listening) {
+                      setState(() => isListening = listening);
                     },
-                    onStart: () {
-                      print('Voice input started');
-                    },
-                    onStop: () {
-                      print('Voice input stopped');
-                    },
+                    onResult: _handleVoiceResult,
                   ),
                   const SizedBox(width: 8),
                   FloatingActionButton(
@@ -266,6 +365,18 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
+  }
+
+  String _formatTime(String? isoTime) {
+    if (isoTime == null || isoTime.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(isoTime).toLocal();
+      final hour = dt.hour.toString().padLeft(2, '0');
+      final minute = dt.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    } catch (_) {
+      return '';
+    }
   }
 
   @override

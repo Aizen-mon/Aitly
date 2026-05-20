@@ -40,6 +40,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final kpis = dashboard['kpis'] as Map<String, dynamic>? ?? {};
+    final todaySales = kpis['today_sales'] as Map<String, dynamic>? ?? {};
+    final pendingDue = kpis['pending_due'] as Map<String, dynamic>? ?? {};
+    final lowStock = kpis['low_stock_count'] as Map<String, dynamic>? ?? {};
+    final inventoryValue = kpis['inventory_value'] as Map<String, dynamic>? ?? {};
+
     return SafeArea(
       child: Scaffold(
         appBar: AppBar(
@@ -113,9 +119,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           children: [
                             Expanded(
                               child: _buildKpiCard(
-                                title: 'Today\'s Sales',
-                                value: '₹15,432',
-                                subtitle: '5 invoices',
+                                title: todaySales['label']?.toString() ?? 'Today\'s Sales',
+                                value: '₹${(todaySales['value'] ?? 0).toString()}',
+                                subtitle: '${todaySales['count'] ?? 0} invoices',
                                 icon: Icons.trending_up,
                                 color: Colors.blue,
                               ),
@@ -123,9 +129,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: _buildKpiCard(
-                                title: 'Pending Dues',
-                                value: '₹8,750',
-                                subtitle: '3 customers',
+                                title: pendingDue['label']?.toString() ?? 'Pending Dues',
+                                value: '₹${(pendingDue['value'] ?? 0).toString()}',
+                                subtitle: '${pendingDue['count'] ?? 0} customers',
                                 icon: Icons.account_balance_wallet,
                                 color: Colors.orange,
                               ),
@@ -138,8 +144,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           children: [
                             Expanded(
                               child: _buildKpiCard(
-                                title: 'Low Stock',
-                                value: '4',
+                                title: lowStock['label']?.toString() ?? 'Low Stock',
+                                value: '${lowStock['value'] ?? 0}',
                                 subtitle: 'items',
                                 icon: Icons.warning_amber,
                                 color: Colors.red,
@@ -148,8 +154,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: _buildKpiCard(
-                                title: 'Inventory',
-                                value: '₹1.25L',
+                                title: inventoryValue['label']?.toString() ?? 'Inventory',
+                                value: '₹${(inventoryValue['value'] ?? 0).toString()}',
                                 subtitle: 'total value',
                                 icon: Icons.inventory_2,
                                 color: Colors.green,

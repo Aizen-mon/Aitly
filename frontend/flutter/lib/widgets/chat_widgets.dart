@@ -15,17 +15,30 @@ class ChatMessageWidget extends StatelessWidget {
     if (isUser) {
       return Align(
         alignment: Alignment.centerRight,
-        child: Container(
-          margin: const EdgeInsets.only(top: 8, bottom: 8, left: 60),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.blue,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            message['text'] ?? '',
-            style: const TextStyle(color: Colors.white, fontSize: 14),
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 8, bottom: 4, left: 60),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                message['text'] ?? '',
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+              ),
+            ),
+            if (message['timestamp'] != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Text(
+                  _formatTimestamp(message['timestamp']?.toString()),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey),
+                ),
+              ),
+          ],
         ),
       );
     }
@@ -89,6 +102,14 @@ class ChatMessageWidget extends StatelessWidget {
                 ),
               ),
             ),
+            if (message['timestamp'] != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 4, top: 4),
+                child: Text(
+                  _formatTimestamp(message['timestamp']?.toString()),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey),
+                ),
+              ),
           ],
         ),
       ),
@@ -200,6 +221,18 @@ class ChatMessageWidget extends StatelessWidget {
         .split(' ')
         .map((word) => word[0].toUpperCase() + word.substring(1))
         .join(' ');
+  }
+
+  String _formatTimestamp(String? timestamp) {
+    if (timestamp == null || timestamp.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(timestamp).toLocal();
+      final hour = dt.hour.toString().padLeft(2, '0');
+      final minute = dt.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    } catch (_) {
+      return '';
+    }
   }
 }
 

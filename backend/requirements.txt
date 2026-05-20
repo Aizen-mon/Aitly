@@ -2,5 +2,22 @@
 Flask==2.3.3
 Flask-Cors==3.0.10
 requests==2.31.0
-SQLAlchemy==2.0.19
-# psycopg2-binary removed for local dev (use SQLite). Add if deploying with Postgres.
+SQLAlchemy>=2.0.44
+Flask-Migrate>=4.0.7
+alembic>=1.13.0
+Pillow>=10.0.0
+pytesseract>=0.3.13
+
+# Speech-to-Text (Faster-Whisper)
+faster-whisper>=1.0.0
+ffmpeg-python>=0.2.1
+pydub>=0.25.1
+
+# Audio processing
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Optional: GPU acceleration (install separately if needed)
+# torch>=2.0.0 (for CUDA/GPU support with faster-whisper)
+
+# psycopg2-binary remains optional for PostgreSQL deployments.

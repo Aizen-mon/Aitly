@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'screens/dashboard.dart';
 import 'screens/chat.dart';
+import 'screens/customers.dart';
 import 'screens/inventory.dart';
 
 void main() {
@@ -84,7 +85,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _index = 0;
 
-  final screens = [DashboardScreen(), ChatScreen(), InventoryScreen()];
+  final screens = [DashboardScreen(), ChatScreen(), CustomersScreen(), InventoryScreen()];
 
   @override
   Widget build(BuildContext context) {
@@ -103,6 +104,11 @@ class _HomePageState extends State<HomePage> {
             icon: Icon(Icons.chat_outlined),
             selectedIcon: Icon(Icons.chat),
             label: 'Assistant',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.people_outlined),
+            selectedIcon: Icon(Icons.people),
+            label: 'Customers',
           ),
           NavigationDestination(
             icon: Icon(Icons.inventory_2_outlined),

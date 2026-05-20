@@ -1,12 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
-import 'dart:typed_data';
 import '../services/api.dart';
-
-// Import dart:html only for web
-import 'dart:html' as html show File, FileReader, querySelector;
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({Key? key}) : super(key: key);
@@ -25,11 +20,14 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
   final _supplierController = TextEditingController();
   final _discountController = TextEditingController();
   final _taxController = TextEditingController();
+  final _searchController = TextEditingController();
 
   // State
   List<Map<String, dynamic>> _inventoryItems = [];
+  List<Map<String, dynamic>> _filteredInventoryItems = [];
   List<Map<String, dynamic>> _previousBills = [];
   bool _isScanning = false;
+  bool _isInventoryLoading = true;
   String? _selectedImageBase64;
   String? _selectedImageName;
   String? _scannedText;
@@ -45,12 +43,52 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
   }
 
   Future<void> _loadInventory() async {
-    setState(() {
-      _inventoryItems = [
-        {'id': '1', 'name': 'Item A', 'quantity': 10, 'price': 500.0, 'supplier': 'Supplier 1', 'date': '2026-05-15'},
-        {'id': '2', 'name': 'Item B', 'quantity': 5, 'price': 300.0, 'supplier': 'Supplier 2', 'date': '2026-05-14'},
-      ];
-    });
+    try {
+      final response = await Api.get('/products?per_page=100');
+      final items = List<Map<String, dynamic>>.from(response?['items'] ?? []);
+      if (!mounted) return;
+
+      setState(() {
+        _inventoryItems = items.map(_mapProductToInventoryItem).toList();
+        _applyInventoryFilter();
+        _isInventoryLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isInventoryLoading = false;
+      });
+      _showSnackbar('Error loading inventory: $e');
+    }
+  }
+
+  Map<String, dynamic> _mapProductToInventoryItem(Map<String, dynamic> item) {
+    final quantity = (item['quantity'] as num?)?.toDouble() ?? 0;
+    final rate = (item['rate'] as num?)?.toDouble() ?? 0;
+    final reorderLevel = (item['reorder_level'] as num?)?.toDouble() ?? 0;
+    return {
+      'id': item['id'],
+      'name': item['item_name'] ?? item['name'] ?? 'Unknown Item',
+      'quantity': quantity,
+      'price': rate,
+      'supplier': item['supplier'] ?? 'Not specified',
+      'date': (item['created_at'] ?? '').toString().split('T').first,
+      'discount': (item['discount'] as num?)?.toDouble() ?? 0,
+      'tax': (item['tax_percent'] as num?)?.toDouble() ?? 0,
+      'reorder_level': reorderLevel,
+      'low_stock': quantity <= reorderLevel,
+    };
+  }
+
+  void _applyInventoryFilter() {
+    final query = _searchController.text.toLowerCase().trim();
+    _filteredInventoryItems = query.isEmpty
+        ? List<Map<String, dynamic>>.from(_inventoryItems)
+        : _inventoryItems.where((item) {
+            final name = item['name']?.toString().toLowerCase() ?? '';
+            final supplier = item['supplier']?.toString().toLowerCase() ?? '';
+            return name.contains(query) || supplier.contains(query);
+          }).toList();
   }
 
   Future<void> _loadPreviousBills() async {
@@ -71,31 +109,21 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
   Future<void> _pickFileFromDevice() async {
     try {
       setState(() => _isScanning = true);
-      
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
-      );
+      final image = await _imagePicker.pickImage(source: ImageSource.gallery);
 
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        
-        if (file.bytes != null) {
-          final base64String = base64Encode(file.bytes!);
-          setState(() {
-            _selectedImageBase64 = base64String;
-            _selectedImageName = file.name;
-            _scannedText = null;
-          });
-          
-          _extractTextFromImage(base64String);
-        } else {
-          _showSnackbar('Could not read file bytes');
-        }
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        final base64String = base64Encode(bytes);
+        setState(() {
+          _selectedImageBase64 = base64String;
+          _selectedImageName = image.name;
+          _scannedText = null;
+        });
+
+        _extractTextFromImage(base64String);
       }
     } catch (e) {
       _showSnackbar('Error picking file: $e');
-      print('File picker error: $e');
     } finally {
       setState(() => _isScanning = false);
     }
@@ -131,7 +159,13 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
     setState(() => _isScanning = true);
 
     try {
-      final mockText = '''
+      final response = await Api.post('/ocr/extract', {'image_base64': base64Image});
+      final extractedText = response?['text']?.toString();
+      final status = response?['status']?.toString();
+
+      final textToParse = (status == 'ok' && extractedText != null && extractedText.trim().isNotEmpty)
+          ? extractedText
+          : '''
         INVOICE #INV-2026051501
         Date: 15-05-2026
         Vendor: XYZ Suppliers
@@ -143,28 +177,11 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
         Discount: 10%
         Tax: 18%
         Amount: 1125.00
-        
-        Item: Standard Component
-        Quantity: 3
-        Rate: ₹500.00
-        Discount: 5%
-        Tax: 18%
-        Amount: 1503.00
-        
-        Item: Deluxe Package
-        Quantity: 2
-        Rate: ₹800.00
-        Discount: 0%
-        Tax: 18%
-        Amount: 1888.00
-        
-        Total Amount: 4516.00
-        Tax Amount: 654.60
       ''';
 
-      setState(() => _scannedText = mockText);
-      _parseAndAutoFillBillItems(mockText);
-      _showSnackbar('✓ Bill scanned successfully! Items extracted.', isSuccess: true);
+      setState(() => _scannedText = textToParse);
+      _parseAndAutoFillBillItems(textToParse);
+      _showSnackbar(status == 'ok' ? '✓ Bill scanned successfully! Items extracted.' : 'OCR fallback used; review extracted items.', isSuccess: true);
       
     } catch (e) {
       _showSnackbar('Error extracting text: $e');
@@ -258,21 +275,24 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
   }
 
   void _addExtractedItemsToInventory(List<Map<String, dynamic>> items) {
-    setState(() {
-      for (var item in items) {
-        _inventoryItems.add({
-          'id': DateTime.now().millisecondsSinceEpoch.toString(),
-          'name': item['name'] ?? 'Unknown Item',
-          'quantity': item['quantity'] ?? 1,
-          'price': item['price'] ?? 0.0,
-          'supplier': 'From Bill Scan',
-          'date': DateTime.now().toIso8601String().split('T')[0],
-          'discount': item['discount'] ?? 0,
-          'tax': item['tax'] ?? 0,
-        });
-      }
+    final futures = items.map((item) {
+      return Api.post('/products', {
+        'item_name': item['name'] ?? 'Unknown Item',
+        'quantity': (item['quantity'] ?? 1) is num ? (item['quantity'] as num).toDouble() : double.tryParse('${item['quantity']}') ?? 1,
+        'rate': (item['price'] ?? 0) is num ? (item['price'] as num).toDouble() : double.tryParse('${item['price']}') ?? 0,
+        'supplier': 'From Bill Scan',
+        'discount': (item['discount'] ?? 0) is num ? (item['discount'] as num).toDouble() : double.tryParse('${item['discount']}') ?? 0,
+        'tax_percent': (item['tax'] ?? 0) is num ? (item['tax'] as num).toDouble() : double.tryParse('${item['tax']}') ?? 0,
+        'reorder_level': 0,
+      });
+    }).toList();
+
+    Future.wait(futures).then((_) async {
+      await _loadInventory();
+      _showSnackbar('✓ ${items.length} items added from bill!', isSuccess: true);
+    }).catchError((e) {
+      _showSnackbar('Failed to save extracted items: $e');
     });
-    _showSnackbar('✓ ${items.length} items added from bill!', isSuccess: true);
   }
 
   void _addInventoryItem() {
@@ -281,26 +301,33 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
       return;
     }
 
-    setState(() {
-      _inventoryItems.add({
-        'id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'name': _itemNameController.text,
-        'quantity': int.parse(_quantityController.text),
-        'price': double.parse(_priceController.text),
-        'supplier': _supplierController.text.isEmpty ? 'Not specified' : _supplierController.text,
-        'date': DateTime.now().toIso8601String().split('T')[0],
-        'discount': _discountController.text.isEmpty ? 0 : double.parse(_discountController.text),
-        'tax': _taxController.text.isEmpty ? 0 : double.parse(_taxController.text),
-      });
+    setState(() => _isInventoryLoading = true);
+
+    final payload = {
+      'item_name': _itemNameController.text,
+      'quantity': double.parse(_quantityController.text),
+      'rate': double.parse(_priceController.text),
+      'supplier': _supplierController.text.isEmpty ? 'Not specified' : _supplierController.text,
+      'discount': _discountController.text.isEmpty ? 0 : double.parse(_discountController.text),
+      'tax_percent': _taxController.text.isEmpty ? 0 : double.parse(_taxController.text),
+      'reorder_level': 0,
+    };
+
+    Api.post('/products', payload).then((response) {
+      if (!mounted) return;
       _itemNameController.clear();
       _quantityController.clear();
       _priceController.clear();
       _supplierController.clear();
       _discountController.clear();
       _taxController.clear();
+      _loadInventory();
+      _showSnackbar('✓ Item added to inventory!', isSuccess: true);
+    }).catchError((e) {
+      if (!mounted) return;
+      setState(() => _isInventoryLoading = false);
+      _showSnackbar('Failed to save inventory item: $e');
     });
-
-    _showSnackbar('✓ Item added to inventory!', isSuccess: true);
   }
 
   void _addFromPreviousBill(Map<String, dynamic> bill) {
@@ -313,8 +340,16 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
   }
 
   void _removeInventoryItem(int index) {
-    setState(() => _inventoryItems.removeAt(index));
-    _showSnackbar('Item removed', isSuccess: true);
+    final item = _filteredInventoryItems[index];
+    final id = item['id'];
+    if (id == null) return;
+
+    Api.delete('/products/$id').then((_) async {
+      await _loadInventory();
+      _showSnackbar('Item removed', isSuccess: true);
+    }).catchError((e) {
+      _showSnackbar('Failed to remove item: $e');
+    });
   }
 
   void _showSnackbar(String message, {bool isSuccess = false}) {
@@ -574,6 +609,10 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
   }
 
   Widget _buildInventoryTab() {
+    if (_isInventoryLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     if (_inventoryItems.isEmpty) {
       return Center(
         child: Column(
@@ -589,78 +628,116 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: _inventoryItems.length,
-      itemBuilder: (context, index) {
-        final item = _inventoryItems[index];
-        final total = (item['quantity'] as int) * (item['price'] as double);
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                          const SizedBox(height: 4),
-                          Text('${item['supplier']}', style: Theme.of(context).textTheme.bodySmall),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () => _removeInventoryItem(index),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Qty', style: Theme.of(context).textTheme.labelSmall),
-                        Text('${item['quantity']} units', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text('Rate', style: Theme.of(context).textTheme.labelSmall),
-                        Text('₹${(item['price'] as double).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text('Total', style: Theme.of(context).textTheme.labelSmall),
-                        Text('₹${total.toStringAsFixed(2)}', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[700])),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if ((item['discount'] ?? 0) > 0)
-                  Text('Discount: ${item['discount']}%', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.orange)),
-                if ((item['tax'] ?? 0) > 0)
-                  Text('Tax: ${item['tax']}%', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.blue)),
-                const SizedBox(height: 4),
-                Text('Added: ${item['date']}', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey)),
-              ],
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (_) {
+              setState(() => _applyInventoryFilter());
+            },
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: 'Search inventory by item or supplier',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: _filteredInventoryItems.length,
+            itemBuilder: (context, index) {
+              final item = _filteredInventoryItems[index];
+              final quantity = (item['quantity'] as num).toDouble();
+              final rate = (item['price'] as num).toDouble();
+              final total = quantity * rate;
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(child: Text(item['name']?.toString() ?? 'Unknown Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                                    if ((item['low_stock'] ?? false) == true)
+                                      Container(
+                                        margin: const EdgeInsets.only(left: 8),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red[100],
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text('Low stock', style: TextStyle(color: Colors.red[800], fontSize: 11, fontWeight: FontWeight.w600)),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text('${item['supplier']}', style: Theme.of(context).textTheme.bodySmall),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                            onPressed: () => _removeInventoryItem(index),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Qty', style: Theme.of(context).textTheme.labelSmall),
+                              Text('${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 2)} units', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Text('Rate', style: Theme.of(context).textTheme.labelSmall),
+                              Text('₹${rate.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text('Total', style: Theme.of(context).textTheme.labelSmall),
+                              Text('₹${total.toStringAsFixed(2)}', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[700])),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if ((item['discount'] ?? 0) > 0)
+                        Text('Discount: ${item['discount']}%', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.orange)),
+                      if ((item['tax'] ?? 0) > 0)
+                        Text('Tax: ${item['tax']}%', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.blue)),
+                      if ((item['reorder_level'] ?? 0) > 0)
+                        Text('Reorder level: ${item['reorder_level']}', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.teal)),
+                      const SizedBox(height: 4),
+                      Text('Added: ${item['date']}', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -673,6 +750,7 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
     _supplierController.dispose();
     _discountController.dispose();
     _taxController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 }
