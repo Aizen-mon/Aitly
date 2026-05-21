@@ -39,7 +39,13 @@ class _ChatScreenState extends State<ChatScreen> {
       final data = await Api.get('/query_history?per_page=8');
       if (!mounted) return;
       setState(() {
-        recentQueries = List<Map<String, dynamic>>.from(data['items'] ?? []);
+        recentQueries = List<Map<String, dynamic>>.from(data['items'] ?? [])
+            .map((item) => {
+                  ...item,
+                  'query': _safeDisplayText(item['query']),
+                })
+            .where((item) => (item['query'] as String).trim().isNotEmpty)
+            .toList();
       });
     } catch (e) {
       print('Error loading queries: $e');
@@ -51,7 +57,13 @@ class _ChatScreenState extends State<ChatScreen> {
       final data = await Api.get('/suggested_prompts');
       if (!mounted) return;
       setState(() {
-        suggestedPrompts = List<Map<String, dynamic>>.from(data['prompts'] ?? []);
+        suggestedPrompts = List<Map<String, dynamic>>.from(data['prompts'] ?? [])
+            .map((item) => {
+                  ...item,
+                  'text': _safeDisplayText(item['text']),
+                })
+            .where((item) => (item['text'] as String).trim().isNotEmpty)
+            .toList();
       });
     } catch (e) {
       print('Error loading prompts: $e');
@@ -63,8 +75,10 @@ class _ChatScreenState extends State<ChatScreen> {
       final data = await Api.get('/assistant/status');
       if (!mounted) return;
       setState(() {
-        assistantStatus = (data is Map) ? Map<String, dynamic>.from(data as Map) : {};
-        assistantAlerts = List<Map<String, dynamic>>.from((data is Map ? data['alerts'] : null) ?? []);
+        assistantStatus = data is Map ? Map<String, dynamic>.from(data) : {};
+        assistantAlerts = List<Map<String, dynamic>>.from(
+          (data is Map<String, dynamic> ? data['alerts'] : null) ?? [],
+        );
       });
     } catch (e) {
       print('Error loading assistant status: $e');
@@ -91,7 +105,7 @@ class _ChatScreenState extends State<ChatScreen> {
         messages.add({
           'role': 'assistant',
           'timestamp': DateTime.now().toIso8601String(),
-          ...?response as Map<String, dynamic>,
+          ...Map<String, dynamic>.from(response as Map),
         });
         isLoading = false;
       });
@@ -197,167 +211,174 @@ class _ChatScreenState extends State<ChatScreen> {
         body: Column(
           children: [
             Expanded(
-              child: messages.isEmpty && showPrompts
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.support_agent,
-                            size: 64,
-                            color: Colors.blue[200],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'How can I assist you?',
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Ask me about your business metrics',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          const SizedBox(height: 32),
-                          if (suggestedPrompts.isNotEmpty)
-                            SuggestedPromptsWidget(
-                              prompts: suggestedPrompts,
-                              onPromptSelected: _handlePromptSelected,
+              child: ListView(
+                controller: _scrollController,
+                padding: const EdgeInsets.only(bottom: 12),
+                children: [
+                  if (messages.isEmpty && showPrompts)
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.42,
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.support_agent,
+                              size: 64,
+                              color: Colors.blue[200],
                             ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      itemCount: messages.length + (isLoading ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (isLoading && index == messages.length) {
-                          return const ChatLoadingWidget();
-                        }
-
-                        final msg = messages[index];
-                        return ChatMessageWidget(
-                          message: msg,
-                          isUser: msg['role'] == 'user',
-                        );
-                      },
-                    ),
-            ),
-            if (assistantStatus.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blueGrey[50],
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.blueGrey[100]!),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        assistantStatus['tally'] == 'connected' ? Icons.cloud_done : Icons.cloud_off,
-                        color: assistantStatus['tally'] == 'connected' ? Colors.green : Colors.orange,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          assistantStatus['tally'] == 'connected'
-                              ? 'Connected to Tally'
-                              : 'Tally disconnected. Actions will queue locally.',
-                          style: Theme.of(context).textTheme.bodyMedium,
+                            const SizedBox(height: 16),
+                            Text(
+                              'How can I assist you?',
+                              style: Theme.of(context).textTheme.headlineSmall,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Ask me about your business metrics',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 24),
+                            if (suggestedPrompts.isNotEmpty)
+                              SuggestedPromptsWidget(
+                                prompts: suggestedPrompts,
+                                onPromptSelected: _handlePromptSelected,
+                              ),
+                          ],
                         ),
                       ),
-                      Text(
-                        '${assistantStatus['pending_sync_count'] ?? 0} pending',
-                        style: Theme.of(context).textTheme.labelSmall,
+                    )
+                  else
+                    ...messages.map(
+                      (msg) => ChatMessageWidget(
+                        message: msg,
+                        isUser: msg['role'] == 'user',
                       ),
-                    ],
+                    ),
+                  if (isLoading) const ChatLoadingWidget(),
+                  if (assistantStatus.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey[50],
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.blueGrey[100]!),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              assistantStatus['tally'] == 'connected' ? Icons.cloud_done : Icons.cloud_off,
+                              color: assistantStatus['tally'] == 'connected' ? Colors.green : Colors.orange,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                assistantStatus['tally'] == 'connected'
+                                    ? 'Connected to Tally'
+                                    : 'Tally disconnected. Actions will queue locally.',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                            Text(
+                              '${assistantStatus['pending_sync_count'] ?? 0} pending',
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (assistantAlerts.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: assistantAlerts.take(3).map((alert) {
+                          return Chip(
+                            avatar: const Icon(Icons.notifications_active, size: 16),
+                            label: Text(alert['message']?.toString() ?? ''),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  if (messages.isNotEmpty && suggestedPrompts.isNotEmpty)
+                    SuggestedPromptsWidget(
+                      prompts: suggestedPrompts,
+                      onPromptSelected: _handlePromptSelected,
+                    ),
+                  if (recentQueries.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Recent Voice Queries',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: recentQueries
+                                .map(
+                                  (item) => InputChip(
+                                    label: Text(
+                                      item['query']?.toString() ?? '',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    onPressed: () {
+                                      final query = _safeDisplayText(item['query']);
+                                      if (query.isNotEmpty) {
+                                        sendMessage(query);
+                                      }
+                                    },
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (voiceHistory.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Voice History',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: voiceHistory
+                                .map(
+                                  (item) => Chip(
+                                    avatar: const Icon(Icons.mic, size: 16),
+                                    label: Text('${item['text']?.toString() ?? ''} • ${_formatTime(item['timestamp']?.toString())}'),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    child: SimpleVoiceControl(
+                      onListeningChanged: (listening) {
+                        setState(() => isListening = listening);
+                      },
+                      onFinalTranscript: _handleVoiceResult,
+                    ),
                   ),
-                ),
-              ),
-            if (assistantAlerts.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: assistantAlerts.take(3).map((alert) {
-                    return Chip(
-                      avatar: const Icon(Icons.notifications_active, size: 16),
-                      label: Text(alert['message']?.toString() ?? ''),
-                    );
-                  }).toList(),
-                ),
-              ),
-            if (messages.isNotEmpty && suggestedPrompts.isNotEmpty)
-              SuggestedPromptsWidget(
-                prompts: suggestedPrompts,
-                onPromptSelected: _handlePromptSelected,
-              ),
-            if (recentQueries.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Recent Voice Queries',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: recentQueries
-                          .map(
-                            (item) => InputChip(
-                              label: Text(item['query']?.toString() ?? ''),
-                              onPressed: () => sendMessage(item['query']?.toString() ?? ''),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ],
-                ),
-              ),
-            if (voiceHistory.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Voice History',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: voiceHistory
-                          .map(
-                            (item) => Chip(
-                              avatar: const Icon(Icons.mic, size: 16),
-                              label: Text('${item['text']?.toString() ?? ''} • ${_formatTime(item['timestamp']?.toString())}'),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ],
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              child: SimpleVoiceControl(
-                onListeningChanged: (listening) {
-                  setState(() => isListening = listening);
-                },
-                onFinalTranscript: _handleVoiceResult,
+                ],
               ),
             ),
             Container(
@@ -437,6 +458,23 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {
       return '';
     }
+  }
+
+  String _safeDisplayText(dynamic value) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isEmpty) {
+      return '';
+    }
+
+    final lower = text.toLowerCase();
+    if (lower == '[object promise]' ||
+        lower.startsWith('instance of') ||
+        lower == 'null' ||
+        lower == 'undefined') {
+      return '';
+    }
+
+    return text;
   }
 
   @override

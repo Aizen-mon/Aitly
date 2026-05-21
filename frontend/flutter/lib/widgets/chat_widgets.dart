@@ -72,7 +72,7 @@ class ChatMessageWidget extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
-                            color: color.withOpacity(0.2),
+                            color: color.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Icon(icon, color: color, size: 20),
@@ -266,6 +266,8 @@ class SuggestedPromptsWidget extends StatelessWidget {
           ),
           Wrap(
             spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.start,
             children: prompts
                 .map((prompt) => PromptChip(
                       text: prompt['text'] ?? '',
@@ -292,9 +294,14 @@ class PromptChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InputChip(
-      label: Text(text),
+      label: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       onPressed: onPressed,
       backgroundColor: Colors.blue[50],
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       labelStyle: const TextStyle(
         color: Colors.blue,
         fontWeight: FontWeight.w500,
