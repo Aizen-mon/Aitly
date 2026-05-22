@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class Api {
-  // Set to your backend address
-  static const base = 'http://127.0.0.1:5000/api'; // use 10.0.2.2 for Android emulator
+  static const base = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://127.0.0.1:5000/api',
+  );
 
   static Future<dynamic> get(String path) async {
     const int maxRetries = 3;

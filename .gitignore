@@ -1,0 +1,8 @@
+*.db
+__pycache__/
+.venv/
+.env
+.env.*
+frontend/flutter/build/
+frontend/flutter/.dart_tool/
+backend/.pytest_cache/

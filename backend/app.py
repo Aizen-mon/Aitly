@@ -5,9 +5,11 @@ Main application entry point with service initialization and configuration.
 import audioop_compat  # ensure audioop compatibility on Python 3.14+
 
 import logging
+import os
 from flask import Flask
 from flask_cors import CORS
 
+from config import ALLOWED_ORIGINS, FLASK_DEBUG
 from database import init_db, SessionLocal
 from services.tally_service import TallyService
 from services.nlp_service import SimpleNLP
@@ -35,8 +37,10 @@ logger = logging.getLogger(__name__)
 def create_app():
     """Create and configure Flask application."""
     app = Flask(__name__)
-    # Allow cross-origin requests from the frontend (including localhost and 127.0.0.1)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    origins = "*"
+    if ALLOWED_ORIGINS and ALLOWED_ORIGINS != "*":
+        origins = [origin.strip() for origin in ALLOWED_ORIGINS.split(",") if origin.strip()]
+    CORS(app, resources={r"/api/*": {"origins": origins}})
 
     init_db()
 
@@ -96,4 +100,4 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=FLASK_DEBUG)

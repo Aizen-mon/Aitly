@@ -21,6 +21,9 @@ def seed_database(repos: RepositoryBundle) -> None:
 
     if repos.products.list(page=1, per_page=1)["total"] == 0:
         for row in [
+            {"item_name": "Coke", "quantity": 48, "rate": 20.0, "discount": 0.0, "tax_percent": 5.0, "supplier": "ABC Traders", "reorder_level": 24},
+            {"item_name": "Maggi", "quantity": 36, "rate": 15.0, "discount": 0.0, "tax_percent": 5.0, "supplier": "XYZ Suppliers", "reorder_level": 18},
+            {"item_name": "Parle-G", "quantity": 60, "rate": 10.0, "discount": 0.0, "tax_percent": 5.0, "supplier": "Retail Hub", "reorder_level": 30},
             {"item_name": "Premium Widget", "quantity": 12, "rate": 250.0, "discount": 10.0, "tax_percent": 18.0, "supplier": "XYZ Suppliers", "reorder_level": 20},
             {"item_name": "Standard Component", "quantity": 4, "rate": 500.0, "discount": 5.0, "tax_percent": 18.0, "supplier": "ABC Traders", "reorder_level": 10},
             {"item_name": "Deluxe Package", "quantity": 2, "rate": 800.0, "discount": 0.0, "tax_percent": 18.0, "supplier": "Retail Hub", "reorder_level": 5},

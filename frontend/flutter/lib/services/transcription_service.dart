@@ -87,12 +87,11 @@ class Segment {
 
 /// Service for transcribing audio using backend Faster-Whisper
 class TranscriptionService extends ChangeNotifier {
-  final ApiClient apiClient;
   bool _isTranscribing = false;
   String? _lastError;
   TranscriptionResult? _lastResult;
 
-  TranscriptionService(this.apiClient);
+  TranscriptionService();
 
   /// Check if currently transcribing
   bool get isTranscribing => _isTranscribing;
@@ -122,7 +121,7 @@ class TranscriptionService extends ChangeNotifier {
       }
 
       // Create multipart request
-      final uri = Uri.parse('${apiClient.baseUrl}/voice/transcribe');
+      final uri = Uri.parse('${Api.base}/voice/transcribe');
       final request = http.MultipartRequest('POST', uri)
         ..fields['language'] = language
         ..files.add(
@@ -177,13 +176,10 @@ class TranscriptionService extends ChangeNotifier {
       final base64Audio = base64Encode(audioBytes);
 
       // Send request
-      final response = await apiClient.post(
-        '/voice/transcribe',
-        {
-          'audio_base64': base64Audio,
-          'language': language,
-        },
-      );
+      final response = await Api.post('/voice/transcribe', {
+        'audio_base64': base64Audio,
+        'language': language,
+      });
 
       if (response != null && response['success'] == true) {
         _lastResult = TranscriptionResult.fromJson(response);
@@ -211,7 +207,8 @@ class TranscriptionService extends ChangeNotifier {
   /// Get STT model information
   Future<Map<String, dynamic>?> getModelInfo() async {
     try {
-      return await apiClient.get('/voice/models');
+      final result = await Api.get('/voice/models');
+      return result is Map<String, dynamic> ? result : null;
     } catch (e) {
       _lastError = 'Failed to get model info: $e';
       return null;

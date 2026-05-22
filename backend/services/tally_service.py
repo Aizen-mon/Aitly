@@ -168,6 +168,12 @@ class TallyService:
         except Exception as e:
             return {"status": "error", "error": str(e), "xml": xml}
 
+    def post_payment(self, payment: dict) -> dict:
+        return {"status": "queued", "error": "not_implemented", "payload": payment}
+
+    def post_inventory_change(self, inventory_change: dict) -> dict:
+        return {"status": "queued", "error": "not_implemented", "payload": inventory_change}
+
     # ==================== Extended Tally Integration ====================
 
     def fetch_inventory(self) -> dict:

@@ -123,6 +123,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } catch (e) {
       if (!mounted) return;
+      _showSnackBar('Could not process request. Please try again.', backgroundColor: Colors.red[700]);
       setState(() {
         messages.add({
           'role': 'assistant',
@@ -165,6 +166,16 @@ class _ChatScreenState extends State<ChatScreen> {
       _controller.text = text;
     });
     sendMessage(text);
+  }
+
+  void _showSnackBar(String message, {Color? backgroundColor}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+      ),
+    );
   }
 
   void _showInvoiceForm() {
@@ -376,6 +387,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         setState(() => isListening = listening);
                       },
                       onFinalTranscript: _handleVoiceResult,
+                      onError: (message) => _showSnackBar(message, backgroundColor: Colors.red[700]),
                     ),
                   ),
                 ],

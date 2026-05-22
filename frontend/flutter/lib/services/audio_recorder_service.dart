@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -32,8 +32,9 @@ class AudioMetrics {
 /// Local audio recording service
 /// Records audio to WAV format and prepares for upload to backend
 class AudioRecorderService extends ChangeNotifier {
+  final AudioRecorder _record = AudioRecorder();
   late Future<void> _initializationFuture;
-  late StreamSubscription<RecordingState>? _stateSubscription;
+  StreamSubscription<RecordingState>? _stateSubscription;
 
   RecordingState _state = RecordingState.idle;
   String? _currentRecordingPath;
@@ -50,7 +51,7 @@ class AudioRecorderService extends ChangeNotifier {
 
   // Configuration
   final String outputFormat = 'wav';
-  final double sampleRate = 16000;
+  final int sampleRate = 16000;
   final int channels = 1;
   final int bitRate = 128000;
 
@@ -96,6 +97,15 @@ class AudioRecorderService extends ChangeNotifier {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       _currentRecordingPath = customPath ?? '${recordingsDir.path}/recording_$timestamp.wav';
 
+      await _record.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          numChannels: 1,
+          sampleRate: 16000,
+        ),
+        path: _currentRecordingPath!,
+      );
+
       _state = RecordingState.recording;
       _recordingDuration = Duration.zero;
       _startDurationTimer();
@@ -116,10 +126,11 @@ class AudioRecorderService extends ChangeNotifier {
         return null;
       }
 
+      final stoppedPath = await _record.stop();
       _state = RecordingState.stopped;
       _stopDurationTimer();
 
-      final recordingPath = _currentRecordingPath;
+      final recordingPath = stoppedPath ?? _currentRecordingPath;
       _currentRecordingPath = null;
 
       notifyListeners();
@@ -131,7 +142,7 @@ class AudioRecorderService extends ChangeNotifier {
         _lastRecordingMetrics = AudioMetrics(
           duration: _recordingDuration,
           fileSize: fileSize,
-          sampleRate: sampleRate,
+          sampleRate: sampleRate.toDouble(),
           channels: channels,
         );
         return recordingPath;
@@ -265,6 +276,7 @@ class AudioRecorderService extends ChangeNotifier {
   void dispose() {
     _stopDurationTimer();
     _stateSubscription?.cancel();
+    _record.dispose();
     super.dispose();
   }
 }

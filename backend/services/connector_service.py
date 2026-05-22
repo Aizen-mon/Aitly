@@ -40,8 +40,12 @@ class ConnectorService:
         try:
             if action_type == "invoice":
                 result = self.tally.post_invoice(payload)
+            elif action_type == "payment":
+                result = self.tally.post_payment(payload)
+            elif action_type == "inventory":
+                result = self.tally.post_inventory_change(payload)
             else:
-                result = self.tally.post_invoice(payload)
+                result = {"status": "error", "error": f"unsupported_action:{action_type}"}
 
             if result.get("status") == "sent":
                 self._last_sync_at = datetime.utcnow()
@@ -82,7 +86,14 @@ class ConnectorService:
             action_type = item.get("action_type", "invoice")
 
             try:
-                result = self.tally.post_invoice(payload) if action_type == "invoice" else self.tally.post_invoice(payload)
+                if action_type == "invoice":
+                    result = self.tally.post_invoice(payload)
+                elif action_type == "payment":
+                    result = self.tally.post_payment(payload)
+                elif action_type == "inventory":
+                    result = self.tally.post_inventory_change(payload)
+                else:
+                    result = {"status": "error", "error": f"unsupported_action:{action_type}"}
                 if result.get("status") == "sent":
                     succeeded += 1
                     self.sync_queue.mark_success(item["id"], reference=item.get("reference"))

@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Validate Voice Integration Setup
-Tests core components without audio file dependencies
-"""
+"""Validate the current voice stack without deleted legacy modules."""
 
 import sys
 import os
@@ -27,9 +24,9 @@ def test_imports():
         ("services.stt_service", "STT Service"),
         ("services.audio_processor", "Audio Processor"),
         ("services.transcription_queue", "Transcription Queue"),
-        ("services.voice_workflow", "Voice Workflow"),
-        ("services.voice_command_handler", "Voice Command Handler"),
-        ("services.voice_workflow_steps", "Voice Workflow Steps"),
+        ("services.workflow_engine", "Workflow Engine"),
+        ("services.voice_service", "Voice Service"),
+        ("services.connector_service", "Connector Service"),
         ("services.entity_parser", "Entity Parser"),
         ("intent_service", "Intent Service"),
         ("services.nlp_service", "NLP Service"),
@@ -201,12 +198,9 @@ def test_api_endpoints():
         
         voice_routes = [r for r in routes if '/voice' in r or '/api' in r]
         
-        if any('/voice' in r for r in voice_routes):
-            print(f"✅ Voice endpoints registered:          PASSED")
-            tests_passed += 1
-        else:
-            print(f"⚠️  Voice endpoints:                     (checking routes)")
-            tests_passed += 1
+        assert any('/voice' in r for r in voice_routes)
+        print(f"✅ Voice endpoints registered:          PASSED")
+        tests_passed += 1
         
         print(f"   Available routes: {len(routes)} total")
         for route in sorted(voice_routes)[:5]:
