@@ -82,12 +82,13 @@ class _SimpleVoiceControlState extends State<SimpleVoiceControl> {
     });
     widget.onListeningChanged?.call(false);
 
-    if (recordingPath == null) {
+    final audioBytes = await _recorder.getRecordingBytes(recordingPath);
+    if (audioBytes == null || audioBytes.isEmpty) {
       _handleError(_recorder.getLastError() ?? 'Recording failed');
       return;
     }
 
-    final result = await _transcriptionService.transcribeFile(recordingPath);
+    final result = await _transcriptionService.transcribeBytes(audioBytes);
     if (!mounted) return;
 
     if (result != null && result.success && result.text.trim().isNotEmpty) {

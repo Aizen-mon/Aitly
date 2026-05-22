@@ -1,8 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
 import 'api.dart';
+import 'transcription_file_io.dart' if (dart.library.html) 'transcription_file_web.dart' as transcription_file;
 
 /// Transcription result
 class TranscriptionResult {
@@ -112,26 +114,18 @@ class TranscriptionService extends ChangeNotifier {
       _lastError = null;
       notifyListeners();
 
-      final file = File(filePath);
-      if (!await file.exists()) {
+      final multipartFile = await transcription_file.multipartAudioFile(filePath);
+      if (multipartFile == null) {
         _lastError = 'Audio file not found';
         _isTranscribing = false;
         notifyListeners();
         return null;
       }
 
-      // Create multipart request
       final uri = Uri.parse('${Api.base}/voice/transcribe');
       final request = http.MultipartRequest('POST', uri)
         ..fields['language'] = language
-        ..files.add(
-          http.MultipartFile(
-            'audio',
-            file.openRead(),
-            await file.length(),
-            filename: 'audio.wav',
-          ),
-        );
+        ..files.add(multipartFile);
 
       // Send request
       final response = await request.send();

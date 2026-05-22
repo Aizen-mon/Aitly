@@ -28,3 +28,8 @@ Pipeline:
 6. `ConnectorService` sends invoice actions to TallyPrime and queues payment or inventory actions until they are implemented or retried.
 
 This is intentionally an MVP architecture, not a production-complete system.
+
+### Platform notes
+
+- **Desktop / mobile**: records WAV under app documents, uploads multipart audio.
+- **Web (Chrome)**: records in-browser (no `path_provider`); audio bytes are sent as base64 to `/api/voice/transcribe`. Use typed chat if the mic fails in the browser.
