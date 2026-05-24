@@ -31,5 +31,5 @@ This is intentionally an MVP architecture, not a production-complete system.
 
 ### Platform notes
 
-- **Desktop / mobile**: records WAV under app documents, uploads multipart audio.
-- **Web (Chrome)**: records in-browser (no `path_provider`); audio bytes are sent as base64 to `/api/voice/transcribe`. Use typed chat if the mic fails in the browser.
+- **Desktop / mobile**: records WAV locally, uploads to `/api/voice/transcribe` (Faster-Whisper), then `/api/parse`.
+- **Web (Chrome)**: uses **browser speech recognition** (no `path_provider`, no WAV). Transcript goes straight to `/api/parse`. Backend Whisper is not used on web.

@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
-import 'recorder_fs_io.dart' if (dart.library.html) 'recorder_fs_web.dart' as recorder_fs;
+import 'recorder_fs_web.dart' if (dart.library.io) 'recorder_fs_io.dart' as recorder_fs;
 
 /// Audio recording state
 enum RecordingState {

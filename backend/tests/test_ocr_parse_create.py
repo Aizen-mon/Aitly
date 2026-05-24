@@ -34,7 +34,12 @@ class OCRParseCreateTest(unittest.TestCase):
         self.assertIn("text", data)
 
         # Send the extracted text to the parse endpoint
-        parse_resp = self.client.post("/api/parse", json={"text": data["text"], "session_id": "ocr-flow"})
+        import uuid
+
+        parse_resp = self.client.post(
+            "/api/parse",
+            json={"text": data["text"], "session_id": f"ocr-flow-{uuid.uuid4().hex}"},
+        )
         self.assertEqual(parse_resp.status_code, 200)
         parsed = parse_resp.get_json()
         details = parsed.get("details", {}) or {}

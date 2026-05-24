@@ -10,7 +10,7 @@ pytesseract>=0.3.13
 
 # Speech-to-Text (Faster-Whisper)
 faster-whisper>=1.0.0
-ffmpeg-python>=0.2.1
+ffmpeg-python>=0.2.0
 pydub>=0.25.1
 
 # Audio processing

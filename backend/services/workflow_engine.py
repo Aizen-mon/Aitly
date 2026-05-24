@@ -156,7 +156,7 @@ class WorkflowEngine:
             self._active_context = None
             return result
         if intent == "record_payment":
-            result = self._start_payment_flow(session_state, context, entities)
+            result = self._start_payment_flow(session_state, context, text, entities)
             self._active_context = None
             return result
         if intent in {"add_inventory", "update_inventory", "delete_inventory", "search_inventory", "low_stock", "inventory_summary"}:
@@ -290,7 +290,7 @@ class WorkflowEngine:
         self._save(state, context, None, None)
         return self.builder.error("I lost track of the invoice flow.", intent="create_invoice")
 
-    def _start_payment_flow(self, state, context, entities: Dict[str, Any]):
+    def _start_payment_flow(self, state, context, text: str, entities: Dict[str, Any]):
         customer_name = entities.get("customer_name")
         amount = self._coerce_amount(text, entities)
         context.setdefault("payment", {})
@@ -532,7 +532,12 @@ class WorkflowEngine:
                 qty = float(item.get("qty", item.get("quantity", 1)) or 1)
                 rate = float(item.get("rate", 0) or 0)
                 if not rate and name:
-                    product = session.query(Product).filter(Product.item_name.ilike(name)).one_or_none()
+                    product = (
+                        session.query(Product)
+                        .filter(Product.item_name.ilike(name.strip()))
+                        .order_by(Product.id)
+                        .first()
+                    )
                     if product:
                         rate = float(product.rate or 0)
                 total += qty * rate
