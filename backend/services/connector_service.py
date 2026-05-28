@@ -51,6 +51,14 @@ class ConnectorService:
                 self._last_sync_at = datetime.utcnow()
                 return {"status": "sent", "response": result.get("response"), "reference": reference}
 
+            if result.get("status") == "not_implemented":
+                return {
+                    "status": "not_implemented",
+                    "message": result.get("error", "Action not implemented in TallyService."),
+                    "reference": reference,
+                    "payload": payload,
+                }
+
             queued = self.sync_queue.enqueue(
                 action_type=action_type,
                 entity_type=action_type,

@@ -1,3 +1,5 @@
+# Historical - see ARCHITECTURE.md
+
 # AI Tally Voice Integration - Implementation Summary
 
 ## ✅ Complete Implementation Checklist

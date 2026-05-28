@@ -1,3 +1,5 @@
+# Historical - see ARCHITECTURE.md
+
 # AI Tally Voice Integration - Deployment Complete ✅
 
 ## Implementation Status: COMPLETE & VALIDATED

@@ -1,3 +1,5 @@
+# Historical - see ARCHITECTURE.md
+
 # AI Tally Voice Assistant - Faster-Whisper Integration Guide
 
 Complete implementation of offline, local speech-to-text using Faster-Whisper for Indian retailers and wholesalers.

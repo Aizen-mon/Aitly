@@ -169,10 +169,18 @@ class TallyService:
             return {"status": "error", "error": str(e), "xml": xml}
 
     def post_payment(self, payment: dict) -> dict:
-        return {"status": "queued", "error": "not_implemented", "payload": payment}
+        return {
+            "status": "not_implemented",
+            "error": "Payment posting is not implemented yet.",
+            "payload": payment,
+        }
 
     def post_inventory_change(self, inventory_change: dict) -> dict:
-        return {"status": "queued", "error": "not_implemented", "payload": inventory_change}
+        return {
+            "status": "not_implemented",
+            "error": "Inventory change posting is not implemented yet.",
+            "payload": inventory_change,
+        }
 
     # ==================== Extended Tally Integration ====================
 

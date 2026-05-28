@@ -1,3 +1,5 @@
+# Historical - see ARCHITECTURE.md
+
 # Quick Reference - AI Tally Voice Integration
 
 ## 🚀 Get Started in 3 Steps
