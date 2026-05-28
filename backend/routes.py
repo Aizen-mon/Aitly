@@ -145,6 +145,20 @@ def init_routes(flask_app, services):
     @api.route("/parse", methods=["POST"])
     def parse_intent():
         data = request.json or {}
+        # If client explicitly requests manual entry, return a prompt instructing UI to open manual invoice form
+        if data.get("manual_entry") or data.get("mode") == "manual":
+            draft = data.get("draft_invoice", {})
+            resp = ResponseFormatter.format_response(
+                "create_invoice",
+                {
+                    "title": "Create Invoice (Manual)",
+                    "message": "Open manual invoice editor to enter customer, items and totals.",
+                    "details": {"draft_invoice": draft},
+                    "action": "show_invoice_form",
+                    "next_step": "manual",
+                },
+            )
+            return jsonify(resp)
         text = data.get("text", "")
         product_names = _known_names(repos.products, "item_name")
         customer_names = _known_names(repos.customers, "customer_name")
@@ -613,5 +627,51 @@ def init_routes(flask_app, services):
         if connector:
             return jsonify(connector.process_due_jobs())
         return jsonify({"processed": 0, "succeeded": 0, "failed": 0})
+
+    @api.route("/invoice/prefill", methods=["POST"])
+    def invoice_prefill():
+        """Return a draft invoice payload derived from the user's text to prefill the manual form.
+
+        Accepts JSON: { "text": "create invoice for ...", "session_id": "..." }
+        Returns: { "draft_invoice": { ... } } or an assistant payload when no draft could be derived.
+        """
+        payload = request.json or {}
+        text = payload.get("text", "")
+        session_id = payload.get("session_id") or _session_id()
+
+        product_names = _known_names(repos.products, "item_name")
+        customer_names = _known_names(repos.customers, "customer_name")
+
+        try:
+            if voice:
+                result = voice.process(session_id, text, product_names=product_names, customer_names=customer_names)
+            else:
+                result = nlp.parse(text, product_names=product_names, customer_names=customer_names)
+        except Exception:
+            result = nlp.parse(text, product_names=product_names, customer_names=customer_names)
+
+        details = {}
+        if isinstance(result, dict):
+            details = result.get("details") or result.get("entities") or {}
+
+        draft = None
+        if isinstance(details, dict) and details.get("draft_invoice"):
+            draft = details.get("draft_invoice")
+
+        if not draft and conversation:
+            try:
+                conv = conversation.handle(session_id, text, result, product_names=product_names, customer_names=customer_names)
+                if conv and isinstance(conv, dict):
+                    d = conv.get("details") or {}
+                    if isinstance(d, dict) and d.get("draft_invoice"):
+                        draft = d.get("draft_invoice")
+            except Exception:
+                pass
+
+        if draft:
+            return jsonify({"draft_invoice": draft})
+
+        resp = ResponseFormatter.format_response("create_invoice", {"title": "Create Invoice", "message": "Open manual invoice editor to enter customer, items and totals.", "details": {}, "action": "show_invoice_form", "next_step": "manual"})
+        return jsonify({"assistant": resp, "draft_invoice": {}})
 
     flask_app.register_blueprint(api)

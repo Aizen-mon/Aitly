@@ -12,11 +12,13 @@ class SimpleVoiceControl extends StatefulWidget {
   final ValueChanged<String> onFinalTranscript;
   final ValueChanged<bool>? onListeningChanged;
   final ValueChanged<String>? onError;
+  final VoidCallback? onManualRequested;
 
   const SimpleVoiceControl({
     required this.onFinalTranscript,
     this.onListeningChanged,
     this.onError,
+    this.onManualRequested,
     Key? key,
   }) : super(key: key);
 
@@ -120,10 +122,21 @@ abstract class _VoiceControlStateBase extends State<SimpleVoiceControl> {
                 ),
               ),
               const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: initializing || isBusy ? null : onTalkPressed,
-                icon: Icon(isRecording ? Icons.stop : Icons.mic),
-                label: Text(isRecording ? 'Stop' : 'Talk'),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Manual entry',
+                    onPressed: () {
+                      widget.onManualRequested?.call();
+                    },
+                    icon: const Icon(Icons.keyboard),
+                  ),
+                  FilledButton.icon(
+                    onPressed: initializing || isBusy ? null : onTalkPressed,
+                    icon: Icon(isRecording ? Icons.stop : Icons.mic),
+                    label: Text(isRecording ? 'Stop' : 'Talk'),
+                  ),
+                ],
               ),
             ],
           ),

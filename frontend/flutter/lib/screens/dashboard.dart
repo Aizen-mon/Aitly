@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api.dart';
 import '../widgets/simple_voice_control.dart';
+import '../widgets/invoice_form.dart';
 
 class DashboardScreen extends StatefulWidget {
   @override
@@ -33,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       setState(() {
         dashboard = (data is Map)
-            ? Map<String, dynamic>.from(data as Map)
+          ? Map<String, dynamic>.from(data)
             : <String, dynamic>{};
         loading = false;
         errorMessage = null;
@@ -53,7 +54,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final summary = await Api.get('/assistant/summary');
       if (!mounted) return;
       setState(() {
-        assistantStatus = (status is Map) ? Map<String, dynamic>.from(status as Map) : {};
+        assistantStatus = (status is Map) ? Map<String, dynamic>.from(status) : {};
         assistantAlerts = List<Map<String, dynamic>>.from((status is Map ? status['alerts'] : null) ?? []);
         assistantSummary = summary?['summary']?.toString();
       });
@@ -440,6 +441,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
             SimpleVoiceControl(
               onListeningChanged: (_) {},
               onFinalTranscript: _handleVoiceTranscript,
+              onManualRequested: () async {
+                try {
+                  final text = _voiceTranscript ?? '';
+                  final resp = await Api.post('/invoice/prefill', {'text': text, 'session_id': _sessionId});
+                  final draft = resp is Map && resp['draft_invoice'] is Map ? Map<String, dynamic>.from(resp['draft_invoice']) : null;
+                  showDialog(
+                    context: context,
+                    builder: (_) => InvoiceFormDialog(onSuccess: () {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invoice created')));
+                    }, prefill: draft),
+                  );
+                } catch (e) {
+                  showDialog(
+                    context: context,
+                    builder: (_) => InvoiceFormDialog(onSuccess: () {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invoice created')));
+                    }),
+                  );
+                }
+              },
             ),
             if (_voiceProcessing) ...[
               const SizedBox(height: 12),

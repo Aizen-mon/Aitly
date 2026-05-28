@@ -336,7 +336,6 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final customerId = widget.customer['id'];
     final customerName = widget.customer['name'] ?? 'Customer';
     final due = (widget.customer['due'] as num?)?.toDouble() ?? 0;
     final reminder = _dueReminder?['reminder'] as Map<String, dynamic>?;

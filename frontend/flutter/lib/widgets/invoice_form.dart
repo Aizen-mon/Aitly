@@ -3,9 +3,11 @@ import '../services/api.dart';
 
 class InvoiceFormDialog extends StatefulWidget {
   final VoidCallback? onSuccess;
+  final Map<String, dynamic>? prefill;
 
   const InvoiceFormDialog({
     this.onSuccess,
+    this.prefill,
     Key? key,
   }) : super(key: key);
 
@@ -34,6 +36,36 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
     super.initState();
     _itemNameController.addListener(_onItemNameChanged);
     _loadTallySnapshot();
+    // Apply prefill if provided
+    final pre = widget.prefill;
+    if (pre != null) {
+      try {
+        final party = pre['party_name'] ?? pre['customer_name'] ?? pre['party'] ?? pre['customer'] ?? '';
+        if (party.toString().isNotEmpty) {
+          _customerController.text = party.toString();
+        }
+
+        final items = pre['items'] as List? ?? pre['line_items'] as List? ?? [];
+        if (items.isNotEmpty) {
+          for (var raw in items) {
+            if (raw is Map) {
+              final name = raw['name'] ?? raw['item_name'] ?? raw['product'] ?? '';
+              final qty = (raw['qty'] ?? raw['quantity'] ?? raw['count'] ?? 1);
+              final rate = (raw['rate'] ?? raw['price'] ?? raw['amount'] ?? 0);
+              final discount = (raw['discount_percent'] ?? raw['discount'] ?? 0);
+              _items.add({
+                'name': name?.toString() ?? '',
+                'quantity': (qty is num) ? qty.toInt() : int.tryParse(qty.toString()) ?? 1,
+                'price': (rate is num) ? rate.toDouble() : double.tryParse(rate.toString()) ?? 0.0,
+                'discount': (discount is num) ? discount.toDouble() : double.tryParse(discount.toString()) ?? 0.0,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        // ignore prefill errors and continue with empty form
+      }
+    }
   }
 
   void _onItemNameChanged() {
@@ -60,7 +92,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
 
       setState(() {
         _snapshot = data is Map
-            ? Map<String, dynamic>.from(data as Map)
+          ? Map<String, dynamic>.from(data)
             : <String, dynamic>{};
         
         // Extract available items from catalog and inventory
@@ -785,7 +817,7 @@ class _InvoiceFormDialogState extends State<InvoiceFormDialog> {
             ),
           ),
           const SizedBox(height: 8),
-          ...((inventory!['items'] as List).take(4).map((item) {
+          ...((inventory['items'] as List).take(4).map((item) {
             final map = item is Map ? Map<String, dynamic>.from(item) : <String, dynamic>{};
             return Padding(
               padding: const EdgeInsets.only(bottom: 6),

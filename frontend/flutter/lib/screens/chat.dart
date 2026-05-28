@@ -117,9 +117,11 @@ class _ChatScreenState extends State<ChatScreen> {
       await loadRecentQueries();
       await loadAssistantStatus();
       
-      // Show invoice form dialog if action is show_invoice_form
+      // Show invoice form dialog if action is show_invoice_form; pass any draft details
       if (response['action'] == 'show_invoice_form') {
-        _showInvoiceForm();
+        Map<String, dynamic>? details = (response['details'] is Map) ? Map<String, dynamic>.from(response['details']) : null;
+        Map<String, dynamic>? draft = details != null && details['draft_invoice'] is Map ? Map<String, dynamic>.from(details['draft_invoice']) : (response['draft_invoice'] is Map ? Map<String, dynamic>.from(response['draft_invoice']) : null);
+        _showInvoiceForm(prefill: draft);
       }
     } catch (e) {
       if (!mounted) return;
@@ -178,11 +180,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _showInvoiceForm() {
+  void _showInvoiceForm({Map<String, dynamic>? prefill}) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => InvoiceFormDialog(
+        prefill: prefill,
         onSuccess: () {
           ScaffoldMessenger.of(this.context).showSnackBar(
             const SnackBar(
@@ -387,6 +390,29 @@ class _ChatScreenState extends State<ChatScreen> {
                         setState(() => isListening = listening);
                       },
                       onFinalTranscript: _handleVoiceResult,
+                      onManualRequested: () async {
+                        try {
+                          final text = _controller.text;
+                          final resp = await Api.post('/invoice/prefill', {'text': text, 'session_id': _sessionId});
+                          final draft = resp is Map && resp['draft_invoice'] is Map ? Map<String, dynamic>.from(resp['draft_invoice']) : null;
+                          showDialog(
+                            context: context,
+                            builder: (_) => InvoiceFormDialog(
+                              prefill: draft,
+                              onSuccess: () {
+                                _showSnackBar('Invoice created');
+                              },
+                            ),
+                          );
+                        } catch (e) {
+                          showDialog(
+                            context: context,
+                            builder: (_) => InvoiceFormDialog(onSuccess: () {
+                              _showSnackBar('Invoice created');
+                            }),
+                          );
+                        }
+                      },
                       onError: (message) => _showSnackBar(message, backgroundColor: Colors.red[700]),
                     ),
                   ),
